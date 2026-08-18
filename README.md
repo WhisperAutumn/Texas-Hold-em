@@ -1,76 +1,121 @@
-# River Room
+# River Room 德州扑克
 
-A browser-based Texas Hold'em table with an authoritative Node.js server. The
-server owns the deck, betting turns, random AI actions, and hand settlement.
-Browser clients join the same table with a name and a session cookie.
+一个支持局域网多人联机的 Texas Hold'em（德州扑克）游戏。Node.js 服务端负责洗牌、发牌、下注回合、AI 行动和牌局结算，玩家通过浏览器或 Windows 玩家客户端加入同一张牌桌。
 
-## Start
+## 主要功能
 
-Node.js 18 or newer is recommended. No package installation is required.
+- 服务端统一管理牌堆、回合和结算，玩家只能看到自己的底牌
+- 支持弃牌、过牌、跟注、加注和行动超时
+- 空位自动由会随机下注的 AI 玩家补齐
+- 最多五名真人玩家加入同一桌
+- 提供服务器设置页面，可管理 Token、盲注和下注范围
+- 提供服务器客户端和玩家客户端 Windows 便携包
+- 不依赖数据库，牌桌规则会保存在本地 JSON 文件中
+
+## 直接启动服务
+
+建议使用 Node.js 18 或更高版本。项目没有第三方依赖，不需要运行 `npm install`。
 
 ```powershell
 node server.js
 ```
 
-Open `http://localhost:3000`, enter a name, and take a seat. Empty seats are
-filled by AI players that randomly fold, check, call, or raise.
+启动后可访问：
 
-## Admin console
+- 玩家牌桌：`http://localhost:3000`
+- 服务器设置：`http://localhost:3000/server`
 
-Open `http://localhost:3000/server`. The default admin password is
-`riverroom-admin` for local development. Set a private password before using
-the console on a shared network:
+输入玩家名称即可入座。单人试玩时，牌桌会自动加入 AI 玩家。
+
+## 服务器设置
+
+默认管理员密码为：
+
+```text
+riverroom-admin
+```
+
+在共享网络中使用前，建议设置自己的管理密码：
 
 ```powershell
-$env:ADMIN_PASSWORD = "your-private-password"
+$env:ADMIN_PASSWORD = "你的管理密码"
 node server.js
 ```
 
-The console can view the live table, issue Token to every seated player, and
-save the starting Token amount, blinds, minimum bet, maximum bet per street,
-and minimum raise. Rule changes take effect on the next hand and are saved in
-`data/table-settings.json`.
+服务器设置页面支持：
 
-## Windows desktop clients
+- 查看监听端口、本机地址和局域网玩家地址
+- 查看服务器运行时间和当前牌桌状态
+- 给当前牌桌上的所有玩家和 AI 发放 Token
+- 设置新玩家的初始 Token
+- 设置小盲注和大盲注
+- 设置最低下注、每轮最高下注和最小加注幅度
+- 查看玩家余额、下注额、在线状态和行动状态
 
-Run the packaging script to create the portable server and player clients:
+牌局规则修改会在下一手牌开始时生效，设置保存在 `data/table-settings.json`。
+
+## Windows 客户端
+
+项目可以生成两个免安装的 Windows 便携包：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\package-windows.ps1
 ```
 
-The generated packages are in `dist`:
+生成的文件位于 `dist` 目录。
 
-- `River Room Server Client.zip` includes Node.js, the game server, and the
-  Server Settings client. Extract it and run `River Room Server.cmd`.
-- `River Room Player Client.zip` opens a desktop-style player window. Extract
-  it and run `River Room Player.cmd`, then enter the LAN player URL shown by
-  Server Settings.
+### 服务器客户端
 
-The server package uses `server-config.ps1` for its port and admin password.
-Both desktop windows use Microsoft Edge app mode, which is included with
-current Windows 10 and Windows 11 installations.
+解压 `River Room Server Client.zip`，双击：
 
-## Join from another device
+```text
+River Room Server.cmd
+```
 
-Start the server, find this computer's LAN IPv4 address (for example
-`192.168.1.20`), and open the following address on another device connected to
-the same network:
+服务器客户端内置 Node.js，会自动启动游戏服务，并以独立应用窗口打开“服务器设置”。端口和管理员密码可在服务器包中的 `server-config.ps1` 修改。
+
+如果服务由服务器客户端启动，关闭服务器客户端窗口时，对应服务也会停止。如果客户端检测到已有服务，则只连接该服务，不会在关闭窗口时停止它。
+
+### 玩家客户端
+
+解压 `River Room Player Client.zip`，双击：
+
+```text
+River Room Player.cmd
+```
+
+输入服务器设置页面显示的“局域网玩家地址”即可加入牌桌。玩家客户端会记住上一次填写的服务器地址。
+
+两个客户端都使用 Microsoft Edge 的应用模式打开独立窗口。当前 Windows 10 和 Windows 11 通常已经自带 Edge。
+
+## 局域网联机
+
+启动服务器后，在服务器设置页面复制局域网玩家地址，例如：
 
 ```text
 http://192.168.1.20:3000
 ```
 
-Allow Node.js on private networks if Windows Firewall asks for permission.
+让其他设备连接同一个局域网，并在浏览器或玩家客户端中打开该地址。Windows 防火墙首次提示时，需要允许 Node.js 访问专用网络。
 
-## Current rules
+## 默认规则
 
-- 2,000 starting Token; blinds are 25 / 50 by default.
-- Up to five human players; AI fills empty seats.
-- Server validates turns and bet ranges.
-- Standard five-card hand ranking from seven available cards.
-- Automatic action timeout and automatic next hand.
+- 初始 Token：2,000
+- 小盲注 / 大盲注：25 / 50
+- 最低下注：50
+- 每轮最高下注：2,000
+- 最小加注幅度：50
+- 自动行动超时和自动开始下一手牌
+- 使用七张可用牌中的最佳五张进行标准牌型比较
 
-This is a local/LAN play prototype. Player accounts and passwords are not
-persistent; the admin password is separate from player login. It does not
-include side pots or real-money payments.
+## 当前限制
+
+这是一个用于本地或局域网娱乐的原型项目，目前不包含：
+
+- 持久化玩家账号和密码
+- 持久化玩家余额
+- 边池结算
+- 公开互联网部署防护
+- 任何真实货币支付或兑换功能
+
+管理员密码与玩家登录相互独立。请勿将本项目直接用于真实货币游戏。
