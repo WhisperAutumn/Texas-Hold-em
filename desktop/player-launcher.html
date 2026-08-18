@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>River Room 玩家客户端</title>
+    <style>
+      :root { color-scheme: dark; font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif; background: #0b1d20; color: #eef3ed; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 320px; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 50% 20%, rgba(55, 112, 91, 0.32), transparent 38%), #0b1d20; }
+      main { width: min(100%, 420px); padding: 30px; border: 1px solid rgba(222, 236, 220, 0.24); border-radius: 6px; background: #123033; box-shadow: 0 25px 70px rgba(0,0,0,0.35); }
+      .brand { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 800; }
+      .mark { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid rgba(234,244,233,0.7); color: #f5c46b; font-family: Georgia,serif; font-size: 18px; font-style: italic; }
+      .eyebrow { margin: 34px 0 7px; color: #d5ac5c; font-family: Consolas,monospace; font-size: 10px; }
+      h1 { margin: 0; font-family: Georgia,serif; font-size: 36px; font-weight: 400; }
+      p { margin: 12px 0 24px; color: #9bb2a7; font-size: 12px; line-height: 1.6; }
+      form { display: grid; gap: 9px; }
+      label { color: #a7bbb2; font-family: Consolas,monospace; font-size: 10px; }
+      input { width: 100%; height: 44px; padding: 0 12px; border: 1px solid rgba(225,239,224,0.24); border-radius: 4px; outline: none; background: #091d20; color: #edf3ea; font: inherit; }
+      input:focus { border-color: #e5b75e; }
+      button { height: 42px; margin-top: 4px; border: 1px solid #e5b75e; border-radius: 4px; background: #e7ba62; color: #18251f; font: 700 12px "Segoe UI","Microsoft YaHei",sans-serif; cursor: pointer; }
+      .error { min-height: 18px; margin: 10px 0 0; color: #e3a19a; font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand"><span class="mark">R</span><span>RIVER ROOM</span></div>
+      <div class="eyebrow">PLAYER CLIENT</div>
+      <h1>连接牌桌</h1>
+      <p>输入服务器客户端显示的“局域网玩家地址”。本机试玩可以使用 localhost:3000。</p>
+      <form id="connect-form">
+        <label for="server-address">服务器地址</label>
+        <input id="server-address" autocomplete="url" placeholder="例如 192.168.1.20:3000" required />
+        <button type="submit">连接服务器</button>
+      </form>
+      <div class="error" id="error" role="status"></div>
+    </main>
+    <script>
+      const form = document.querySelector("#connect-form");
+      const input = document.querySelector("#server-address");
+      const error = document.querySelector("#error");
+      input.value = localStorage.getItem("river-room-server") || "localhost:3000";
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        let address = input.value.trim().replace(/\/+$/, "");
+        if (!/^https?:\/\//i.test(address)) address = `http://${address}`;
+        try {
+          const url = new URL(address);
+          if (!url.hostname) throw new Error();
+          localStorage.setItem("river-room-server", url.origin);
+          window.location.href = url.origin;
+        } catch {
+          error.textContent = "服务器地址格式不正确。";
+        }
+      });
+    </script>
+  </body>
+</html>

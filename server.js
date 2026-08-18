@@ -1,0 +1,1012 @@
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+const os = require("os");
+
+const PORT = Number(process.env.PORT || 3000);
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "riverroom-admin";
+const MAX_SEATS = 5;
+const MIN_SEATS = 4;
+const TABLE_IDLE_TIMEOUT = 12000;
+const ACTION_TIMEOUT_MS = 18000;
+const BOT_NAMES = ["Nova", "Milo", "Iris", "Theo", "Jade"];
+const SUITS = ["S", "H", "D", "C"];
+const RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"];
+const ROUND_LABELS = ["Pre-flop", "Flop", "Turn", "River", "Showdown"];
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon"
+};
+
+const publicDir = path.join(__dirname, "public");
+const dataDir = path.join(__dirname, "data");
+const settingsFile = path.join(dataDir, "table-settings.json");
+const DEFAULT_SETTINGS = {
+  startingTokens: 2000,
+  smallBlind: 25,
+  bigBlind: 50,
+  minimumBet: 50,
+  maximumBet: 2000,
+  minimumRaise: 50
+};
+
+function loadTableSettings() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+    return { ...DEFAULT_SETTINGS, ...saved };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveTableSettings() {
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(settingsFile, `${JSON.stringify(tableSettings, null, 2)}\n`, "utf8");
+}
+
+const tableSettings = loadTableSettings();
+const adminSessions = new Set();
+const game = {
+  players: [],
+  board: [],
+  deck: [],
+  pot: 0,
+  dealerIndex: 0,
+  currentIndex: -1,
+  street: 0,
+  minRaise: tableSettings.minimumRaise,
+  rules: { ...tableSettings },
+  currentBet: 0,
+  handActive: false,
+  phase: "Waiting for players",
+  log: ["Table created. Waiting for a player to sit down."],
+  nextHandTimer: null,
+  turnTimer: null,
+  version: 0
+};
+
+function bumpVersion() {
+  game.version += 1;
+}
+
+function touchPlayer(player) {
+  if (!player || player.isBot) return;
+  player.lastSeen = Date.now();
+  player.connected = true;
+}
+
+function createDeck() {
+  return SUITS.flatMap((suit) => RANKS.map((rank) => ({ rank, suit })));
+}
+
+function shuffle(cards) {
+  for (let i = cards.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [cards[i], cards[j]] = [cards[j], cards[i]];
+  }
+  return cards;
+}
+
+function draw() {
+  return game.deck.pop();
+}
+
+function cardLabel(card) {
+  return `${card.rank}${card.suit}`;
+}
+
+function addLog(message) {
+  game.log.unshift(message);
+  game.log = game.log.slice(0, 7);
+  bumpVersion();
+}
+
+function normalizeSeats() {
+  game.players.forEach((player, index) => {
+    player.seat = index;
+  });
+  game.dealerIndex = game.players.length ? game.dealerIndex % game.players.length : 0;
+}
+
+function compareScores(left, right) {
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const difference = (left[index] || 0) - (right[index] || 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function rankValue(rank) {
+  return RANKS.indexOf(rank) + 2;
+}
+
+function evaluateFive(cards) {
+  const values = cards.map((card) => rankValue(card.rank)).sort((a, b) => b - a);
+  const counts = new Map();
+  values.forEach((value) => counts.set(value, (counts.get(value) || 0) + 1));
+  const groups = [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0]);
+  const flush = cards.every((card) => card.suit === cards[0].suit);
+  const unique = [...new Set(values)].sort((a, b) => b - a);
+  let straightHigh = 0;
+  if (unique.length === 5) {
+    if (unique[0] - unique[4] === 4) straightHigh = unique[0];
+    if (unique.join(",") === "14,5,4,3,2") straightHigh = 5;
+  }
+  if (flush && straightHigh) return [8, straightHigh];
+  if (groups[0][1] === 4) return [7, groups[0][0], groups[1][0]];
+  if (groups[0][1] === 3 && groups[1][1] === 2) return [6, groups[0][0], groups[1][0]];
+  if (flush) return [5, ...values];
+  if (straightHigh) return [4, straightHigh];
+  if (groups[0][1] === 3) return [3, groups[0][0], ...groups.slice(1).map((group) => group[0]).sort((a, b) => b - a)];
+  if (groups[0][1] === 2 && groups[1][1] === 2) {
+    return [2, Math.max(groups[0][0], groups[1][0]), Math.min(groups[0][0], groups[1][0]), groups[2][0]];
+  }
+  if (groups[0][1] === 2) return [1, groups[0][0], ...groups.slice(1).map((group) => group[0]).sort((a, b) => b - a)];
+  return [0, ...values];
+}
+
+function bestScore(cards) {
+  let best = [-1];
+  for (let a = 0; a < cards.length - 4; a += 1) {
+    for (let b = a + 1; b < cards.length - 3; b += 1) {
+      for (let c = b + 1; c < cards.length - 2; c += 1) {
+        for (let d = c + 1; d < cards.length - 1; d += 1) {
+          for (let e = d + 1; e < cards.length; e += 1) {
+            const score = evaluateFive([cards[a], cards[b], cards[c], cards[d], cards[e]]);
+            if (compareScores(score, best) > 0) best = score;
+          }
+        }
+      }
+    }
+  }
+  return best;
+}
+
+function scoreName(score) {
+  return [
+    "High card",
+    "One pair",
+    "Two pair",
+    "Three of a kind",
+    "Straight",
+    "Flush",
+    "Full house",
+    "Four of a kind",
+    "Straight flush"
+  ][score[0]];
+}
+
+function activePlayers() {
+  return game.players.filter((player) => player.inHand && !player.folded);
+}
+
+function playerAfter(index, predicate = () => true) {
+  if (!game.players.length) return -1;
+  for (let offset = 1; offset <= game.players.length; offset += 1) {
+    const candidate = (index + offset) % game.players.length;
+    if (predicate(game.players[candidate])) return candidate;
+  }
+  return -1;
+}
+
+function playerNeedsAction(player) {
+  return player.inHand && !player.folded && !player.allIn && player.actedAtBet !== game.currentBet;
+}
+
+function everyEligiblePlayerMatched() {
+  return activePlayers().every((player) => player.allIn || (player.bet === game.currentBet && player.actedAtBet === game.currentBet));
+}
+
+function ensureBotSeats() {
+  const humanCount = game.players.filter((player) => !player.isBot).length;
+  const targetSeats = Math.min(MAX_SEATS, Math.max(MIN_SEATS, humanCount));
+  while (game.players.length > targetSeats) {
+    const index = game.players.findIndex((player) => player.isBot && !player.inHand);
+    if (index === -1) break;
+    game.players.splice(index, 1);
+  }
+  while (game.players.length < targetSeats) {
+    const name = BOT_NAMES.find((candidate) => !game.players.some((player) => player.name === candidate));
+    if (!name) break;
+    game.players.push({
+      id: `bot-${name.toLowerCase()}`,
+      name,
+      stack: tableSettings.startingTokens,
+      seat: game.players.length,
+      isBot: true,
+      connected: true,
+      lastSeen: Date.now(),
+      inHand: false,
+      folded: false,
+      allIn: false,
+      cards: [],
+      bet: 0,
+      totalBet: 0,
+      actedAtBet: -1
+    });
+  }
+  normalizeSeats();
+}
+
+function publicPlayer(player, viewerId, now) {
+  const connected = player.isBot || now - (player.lastSeen || 0) <= TABLE_IDLE_TIMEOUT;
+  const showCards = viewerId === player.id || game.phase === "Showdown" || !game.handActive;
+  return {
+    id: player.id,
+    name: player.name,
+    stack: player.stack,
+    seat: player.seat,
+    isBot: player.isBot,
+    connected,
+    inHand: player.inHand,
+    folded: player.folded,
+    allIn: player.allIn,
+    bet: player.bet,
+    cards: showCards ? player.cards : []
+  };
+}
+
+function stateFor(viewerSid) {
+  const now = Date.now();
+  const current = game.players[game.currentIndex];
+  const viewer = findPlayerBySid(viewerSid);
+  const viewerId = viewer?.id;
+  return {
+    version: game.version,
+    phase: game.phase,
+    street: game.street,
+    streetLabel: ROUND_LABELS[game.street] || "Waiting",
+    board: game.board,
+    pot: game.pot,
+    smallBlind: game.rules.smallBlind,
+    bigBlind: game.rules.bigBlind,
+    startingTokens: game.rules.startingTokens,
+    minimumBet: game.rules.minimumBet,
+    maximumBet: game.rules.maximumBet,
+    minimumRaise: game.rules.minimumRaise,
+    dealerIndex: game.dealerIndex,
+    currentPlayerId: current ? current.id : null,
+    players: game.players.map((player) => publicPlayer(player, viewerId, now)),
+    log: game.log,
+    me: viewer ? publicPlayer(viewer, viewerId, now) : null,
+    controls: {
+      canAct: Boolean(viewer && game.handActive && current && current.id === viewerId && !viewer.folded && !viewer.allIn),
+      toCall: viewer && viewer.inHand ? Math.max(0, game.currentBet - viewer.bet) : 0,
+      minRaiseTo: game.currentBet === 0 ? game.rules.minimumBet : game.currentBet + game.minRaise,
+      maxRaiseTo: viewer ? Math.min(viewer.stack + viewer.bet, game.rules.maximumBet) : 0
+    }
+  };
+}
+
+function emitStateVersion() {
+  bumpVersion();
+}
+
+function addChips(player, targetBet) {
+  const target = Math.min(targetBet, player.bet + player.stack);
+  const added = Math.max(0, target - player.bet);
+  player.stack -= added;
+  player.bet += added;
+  player.totalBet += added;
+  game.pot += added;
+  if (player.stack === 0) player.allIn = true;
+  return added;
+}
+
+function resetStreetBets() {
+  game.players.forEach((player) => {
+    player.bet = 0;
+  });
+  game.currentBet = 0;
+  game.minRaise = game.rules.minimumRaise;
+}
+
+function clearTimers() {
+  if (game.nextHandTimer) clearTimeout(game.nextHandTimer);
+  if (game.turnTimer) clearTimeout(game.turnTimer);
+  game.nextHandTimer = null;
+  game.turnTimer = null;
+}
+
+function awardUncontested() {
+  const winner = activePlayers()[0];
+  if (!winner) return;
+  winner.stack += game.pot;
+  game.phase = "Showdown";
+  game.handActive = false;
+  game.currentIndex = -1;
+  addLog(`${winner.name} wins ${game.pot} without a showdown.`);
+  game.pot = 0;
+  emitStateVersion();
+  scheduleNextHand();
+}
+
+function showdown() {
+  const contenders = activePlayers();
+  const scores = contenders.map((player) => ({ player, score: bestScore([...player.cards, ...game.board]) }));
+  const best = scores.reduce((winner, current) => (compareScores(current.score, winner.score) > 0 ? current : winner));
+  const winners = scores.filter((entry) => compareScores(entry.score, best.score) === 0);
+  const share = Math.floor(game.pot / winners.length);
+  let remainder = game.pot - share * winners.length;
+  winners.forEach((entry) => {
+    entry.player.stack += share + (remainder > 0 ? 1 : 0);
+    remainder = Math.max(0, remainder - 1);
+  });
+  game.phase = "Showdown";
+  game.handActive = false;
+  game.currentIndex = -1;
+  addLog(`${winners.map((entry) => entry.player.name).join(" & ")} win ${game.pot} with ${scoreName(best.score)}.`);
+  game.pot = 0;
+  emitStateVersion();
+  scheduleNextHand();
+}
+
+function advanceStreet() {
+  if (activePlayers().length <= 1) {
+    awardUncontested();
+    return;
+  }
+
+  game.street += 1;
+  if (game.street === 1) {
+    game.board.push(draw(), draw(), draw());
+    game.phase = "Flop";
+  } else if (game.street === 2) {
+    game.board.push(draw());
+    game.phase = "Turn";
+  } else if (game.street === 3) {
+    game.board.push(draw());
+    game.phase = "River";
+  } else {
+    showdown();
+    return;
+  }
+
+  resetStreetBets();
+  game.players.forEach((player) => {
+    player.actedAtBet = -1;
+  });
+  addLog(`${game.phase}: ${game.board.map(cardLabel).join(" ")}.`);
+  game.currentIndex = playerAfter(game.dealerIndex, (player) => playerNeedsAction(player));
+  emitStateVersion();
+  if (game.currentIndex === -1) {
+    advanceStreet();
+  } else {
+    announceTurn();
+  }
+}
+
+function handleAction(player, action, raiseTo) {
+  if (!game.handActive || game.players[game.currentIndex]?.id !== player.id) return false;
+  if (game.turnTimer) clearTimeout(game.turnTimer);
+  const toCall = Math.max(0, game.currentBet - player.bet);
+
+  if (action === "fold") {
+    player.folded = true;
+    player.actedAtBet = game.currentBet;
+    addLog(`${player.name} folds.`);
+  } else if (action === "raise") {
+    const requested = Number(raiseTo);
+    const minimum = game.currentBet === 0 ? game.rules.minimumBet : game.currentBet + game.minRaise;
+    const maximum = Math.min(player.bet + player.stack, game.rules.maximumBet);
+    if (!Number.isFinite(requested) || requested < minimum || requested > maximum) {
+      return false;
+    }
+    addChips(player, Math.floor(requested));
+    const raiseSize = player.bet - game.currentBet;
+    game.currentBet = player.bet;
+    game.minRaise = Math.max(game.minRaise, raiseSize);
+    game.players.forEach((other) => {
+      if (other.id !== player.id && other.inHand && !other.folded && !other.allIn) other.actedAtBet = -1;
+    });
+    player.actedAtBet = game.currentBet;
+    addLog(`${player.name} raises to ${player.bet}.`);
+  } else {
+    const paid = addChips(player, game.currentBet);
+    player.actedAtBet = game.currentBet;
+    addLog(toCall === 0 ? `${player.name} checks.` : `${player.name} calls ${paid}.`);
+  }
+
+  emitStateVersion();
+  advanceTurn();
+  return true;
+}
+
+function botAct(player) {
+  if (!game.handActive || game.players[game.currentIndex]?.id !== player.id) return;
+  const toCall = Math.max(0, game.currentBet - player.bet);
+  const minimumRaiseTo = game.currentBet === 0 ? game.rules.minimumBet : game.currentBet + game.minRaise;
+  const canRaise = Math.min(player.stack + player.bet, game.rules.maximumBet) >= minimumRaiseTo;
+  const roll = Math.random();
+
+  if (toCall > 0 && roll < 0.18) {
+    handleAction(player, "fold");
+    return;
+  }
+  if (canRaise && roll > 0.72) {
+    const spread = Math.max(game.minRaise, Math.min(game.rules.bigBlind * 4, Math.floor(player.stack / 3)));
+    const minimum = game.currentBet === 0 ? game.rules.minimumBet : game.currentBet + game.minRaise;
+    const target = Math.min(Math.min(player.stack + player.bet, game.rules.maximumBet), minimum + Math.floor(Math.random() * Math.max(1, spread)));
+    handleAction(player, "raise", target);
+    return;
+  }
+  handleAction(player, "checkCall");
+}
+
+function timeoutAction(player) {
+  if (!game.handActive || game.players[game.currentIndex]?.id !== player.id) return;
+  const toCall = Math.max(0, game.currentBet - player.bet);
+  handleAction(player, toCall > 0 ? "fold" : "checkCall");
+}
+
+function announceTurn() {
+  if (game.turnTimer) clearTimeout(game.turnTimer);
+  const player = game.players[game.currentIndex];
+  if (!player || !game.handActive) return;
+  addLog(`${player.name}'s turn.`);
+  emitStateVersion();
+
+  if (player.isBot) {
+    game.turnTimer = setTimeout(() => botAct(player), 850 + Math.floor(Math.random() * 800));
+  } else if (!player.connected) {
+    game.turnTimer = setTimeout(() => timeoutAction(player), 250);
+  } else {
+    game.turnTimer = setTimeout(() => timeoutAction(player), ACTION_TIMEOUT_MS);
+  }
+}
+
+function advanceTurn() {
+  if (!game.handActive) return;
+  if (activePlayers().length <= 1) {
+    awardUncontested();
+    return;
+  }
+
+  if (everyEligiblePlayerMatched()) {
+    advanceStreet();
+    return;
+  }
+
+  const next = playerAfter(game.currentIndex, (player) => playerNeedsAction(player));
+  if (next === -1) {
+    advanceStreet();
+    return;
+  }
+  game.currentIndex = next;
+  announceTurn();
+}
+
+function startHand() {
+  clearTimers();
+  game.rules = { ...tableSettings };
+  game.players = game.players.filter((player) => player.isBot || player.connected);
+  game.players.forEach((player) => {
+    player.inHand = false;
+    player.folded = false;
+    player.allIn = false;
+    player.cards = [];
+    player.bet = 0;
+    player.totalBet = 0;
+    player.actedAtBet = -1;
+  });
+  ensureBotSeats();
+
+  const eligible = game.players.filter((player) => player.isBot || player.connected);
+  if (eligible.length < 2) {
+    game.phase = "Waiting for players";
+    game.handActive = false;
+    game.currentIndex = -1;
+    addLog("Waiting for enough players.");
+    emitStateVersion();
+    return;
+  }
+
+  game.handActive = true;
+  game.phase = "Pre-flop";
+  game.street = 0;
+  game.board = [];
+  game.pot = 0;
+  game.deck = shuffle(createDeck());
+  game.players.forEach((player) => {
+    if (player.stack <= 0) player.stack = game.rules.startingTokens;
+    player.inHand = player.isBot || player.connected;
+    player.folded = false;
+    player.allIn = false;
+    player.cards = player.inHand ? [draw(), draw()] : [];
+    player.bet = 0;
+    player.totalBet = 0;
+    player.actedAtBet = -1;
+  });
+
+  game.dealerIndex = (game.dealerIndex + 1) % game.players.length;
+  const smallBlindIndex = playerAfter(game.dealerIndex, (player) => player.inHand);
+  const bigBlindIndex = playerAfter(smallBlindIndex, (player) => player.inHand);
+  const smallBlind = game.players[smallBlindIndex];
+  const bigBlind = game.players[bigBlindIndex];
+
+  if (!smallBlind || !bigBlind) {
+    game.handActive = false;
+    game.phase = "Waiting for players";
+    emitStateVersion();
+    return;
+  }
+
+  postBlind(smallBlind, game.rules.smallBlind, "small blind");
+  postBlind(bigBlind, game.rules.bigBlind, "big blind");
+  game.currentBet = game.rules.bigBlind;
+  game.minRaise = game.rules.minimumRaise;
+  game.players.forEach((player) => {
+    if (player.inHand) player.actedAtBet = -1;
+  });
+  addLog(`Hand begins. ${game.players[game.dealerIndex].name} has the dealer button.`);
+  game.currentIndex = playerAfter(bigBlindIndex, (player) => playerNeedsAction(player));
+  emitStateVersion();
+  if (game.currentIndex === -1) {
+    advanceStreet();
+  } else {
+    announceTurn();
+  }
+}
+
+function scheduleNextHand() {
+  clearTimers();
+  game.nextHandTimer = setTimeout(() => {
+    game.nextHandTimer = null;
+    startHand();
+  }, 4200);
+}
+
+function maintenanceTick() {
+  const now = Date.now();
+  let changed = false;
+
+  for (const player of game.players) {
+    if (player.isBot) continue;
+    const connected = now - (player.lastSeen || 0) <= TABLE_IDLE_TIMEOUT;
+    if (player.connected !== connected) {
+      player.connected = connected;
+      changed = true;
+    }
+  }
+
+  if (game.handActive) {
+    const current = game.players[game.currentIndex];
+    if (current && !current.isBot && !current.connected) {
+      timeoutAction(current);
+      return;
+    }
+  } else {
+    const before = game.players.length;
+    game.players = game.players.filter((player) => player.isBot || player.connected || now - (player.lastSeen || 0) <= TABLE_IDLE_TIMEOUT);
+    if (game.players.length !== before) {
+      changed = true;
+      ensureBotSeats();
+    }
+  }
+
+  if (changed) emitStateVersion();
+}
+
+function parseCookies(cookieHeader = "") {
+  return cookieHeader.split(";").reduce((acc, part) => {
+    const index = part.indexOf("=");
+    if (index === -1) return acc;
+    const key = part.slice(0, index).trim();
+    const value = decodeURIComponent(part.slice(index + 1).trim());
+    acc[key] = value;
+    return acc;
+  }, {});
+}
+
+function send(res, statusCode, body, headers = {}) {
+  res.writeHead(statusCode, {
+    "Cache-Control": "no-store",
+    ...headers
+  });
+  res.end(body);
+}
+
+function json(res, statusCode, payload, headers = {}) {
+  send(res, statusCode, JSON.stringify(payload), { "Content-Type": "application/json; charset=utf-8", ...headers });
+}
+
+function getSid(req) {
+  const cookies = parseCookies(req.headers.cookie || "");
+  return cookies.sid || "";
+}
+
+function setSidCookie(res, sid) {
+  res.setHeader("Set-Cookie", `sid=${encodeURIComponent(sid)}; Path=/; HttpOnly; SameSite=Lax`);
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += chunk;
+      if (data.length > 1_000_000) {
+        reject(new Error("Payload too large"));
+        req.destroy();
+      }
+    });
+    req.on("end", () => resolve(data));
+    req.on("error", reject);
+  });
+}
+
+function handleJsonRoute(req, res, handler) {
+  readBody(req)
+    .then((raw) => {
+      let body = {};
+      try {
+        body = raw ? JSON.parse(raw) : {};
+      } catch {
+        json(res, 400, { ok: false, error: "Invalid JSON." });
+        return;
+      }
+      try {
+        handler(body);
+      } catch (error) {
+        console.error(error);
+        if (!res.headersSent) json(res, 500, { ok: false, error: "Internal server error." });
+      }
+    })
+    .catch((error) => {
+      if (!res.headersSent) json(res, 400, { ok: false, error: error.message });
+    });
+}
+
+function sanitizeName(input) {
+  return String(input || "Guest")
+    .replace(/[^\w\u4e00-\u9fff -]/g, "")
+    .trim()
+    .slice(0, 14) || "Guest";
+}
+
+function findPlayerBySid(sid) {
+  return game.players.find((player) => !player.isBot && player.sid === sid);
+}
+
+function getLoginPayload(req, body) {
+  const sid = getSid(req) || crypto.randomUUID();
+  const name = sanitizeName(body?.name);
+  return { sid, name };
+}
+
+function createOrUpdatePlayer(req, res, body) {
+  const { sid, name } = getLoginPayload(req, body);
+  const existing = findPlayerBySid(sid);
+  if (existing) {
+    existing.name = name;
+    touchPlayer(existing);
+    setSidCookie(res, sid);
+    return existing;
+  }
+
+  const replacementBotIndex = game.players.findIndex((player) => player.isBot && !player.inHand);
+  if (game.players.length >= MAX_SEATS && replacementBotIndex === -1) {
+    return null;
+  }
+
+  const player = {
+    id: crypto.randomUUID(),
+    sid,
+    name,
+    stack: tableSettings.startingTokens,
+    seat: 0,
+    isBot: false,
+    connected: true,
+    lastSeen: Date.now(),
+    inHand: false,
+    folded: false,
+    allIn: false,
+    cards: [],
+    bet: 0,
+    totalBet: 0,
+    actedAtBet: -1
+  };
+
+  if (replacementBotIndex !== -1) {
+    game.players.splice(replacementBotIndex, 1, player);
+  } else {
+    game.players.push(player);
+  }
+  normalizeSeats();
+  touchPlayer(player);
+  setSidCookie(res, sid);
+  addLog(`${player.name} joins the table.`);
+  emitStateVersion();
+  if (!game.handActive) startHand();
+  else ensureBotSeats();
+  return player;
+}
+
+function handleLogin(req, res, body) {
+  const player = createOrUpdatePlayer(req, res, body);
+  if (!player) {
+    json(res, 409, { ok: false, error: "This table is full right now." });
+    return;
+  }
+  json(res, 200, { ok: true, state: stateFor(player.sid) });
+}
+
+function handleActionRequest(req, res, body) {
+  const sid = getSid(req);
+  const player = sid ? findPlayerBySid(sid) : null;
+  if (!player) {
+    json(res, 401, { ok: false, error: "Please log in first." });
+    return;
+  }
+  touchPlayer(player);
+  const accepted = handleAction(player, body?.type, body?.raiseTo);
+  if (!accepted) {
+    json(res, 400, { ok: false, error: "Action not accepted right now.", state: stateFor(sid) });
+    return;
+  }
+  json(res, 200, { ok: true, state: stateFor(sid) });
+}
+
+function getAdminSession(req) {
+  return parseCookies(req.headers.cookie || "").admin_sid || "";
+}
+
+function isAdmin(req) {
+  return adminSessions.has(getAdminSession(req));
+}
+
+function setAdminCookie(res, sessionId, maxAge = 28800) {
+  res.setHeader("Set-Cookie", `admin_sid=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}`);
+}
+
+function passwordMatches(input) {
+  const supplied = Buffer.from(String(input || ""));
+  const expected = Buffer.from(ADMIN_PASSWORD);
+  return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+}
+
+function adminState() {
+  const now = Date.now();
+  const takesEffectNextHand = Object.keys(DEFAULT_SETTINGS).some((key) => tableSettings[key] !== game.rules[key]);
+  const lanAddresses = Object.values(os.networkInterfaces())
+    .flat()
+    .filter((address) => address && address.family === "IPv4" && !address.internal)
+    .map((address) => `http://${address.address}:${PORT}`);
+  return {
+    server: {
+      port: PORT,
+      uptimeSeconds: Math.floor(process.uptime()),
+      localPlayerUrl: `http://localhost:${PORT}`,
+      lanPlayerUrls: [...new Set(lanAddresses)]
+    },
+    pendingSettings: { ...tableSettings },
+    activeRules: { ...game.rules },
+    takesEffectNextHand,
+    table: {
+      phase: game.phase,
+      pot: game.pot,
+      handActive: game.handActive,
+      currentPlayerId: game.players[game.currentIndex]?.id || null,
+      players: game.players.map((player) => ({
+        id: player.id,
+        name: player.name,
+        stack: player.stack,
+        bet: player.bet,
+        isBot: player.isBot,
+        connected: player.isBot || now - (player.lastSeen || 0) <= TABLE_IDLE_TIMEOUT,
+        inHand: player.inHand,
+        folded: player.folded,
+        allIn: player.allIn
+      }))
+    },
+    log: game.log
+  };
+}
+
+function requireAdmin(req, res) {
+  if (isAdmin(req)) return true;
+  json(res, 401, { ok: false, error: "Admin login required." });
+  return false;
+}
+
+function parsePositiveInteger(value, minimum, maximum) {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < minimum || number > maximum) return null;
+  return number;
+}
+
+function validateTableSettings(body) {
+  const settings = {
+    startingTokens: parsePositiveInteger(body?.startingTokens, 100, 1_000_000_000),
+    smallBlind: parsePositiveInteger(body?.smallBlind, 1, 10_000_000),
+    bigBlind: parsePositiveInteger(body?.bigBlind, 1, 10_000_000),
+    minimumBet: parsePositiveInteger(body?.minimumBet, 1, 100_000_000),
+    maximumBet: parsePositiveInteger(body?.maximumBet, 1, 1_000_000_000),
+    minimumRaise: parsePositiveInteger(body?.minimumRaise, 1, 100_000_000)
+  };
+  if (Object.values(settings).some((value) => value === null)) {
+    return { error: "All settings must be positive whole numbers within the allowed range." };
+  }
+  if (settings.smallBlind > settings.bigBlind) return { error: "Small blind cannot exceed big blind." };
+  if (settings.bigBlind > settings.maximumBet) return { error: "Maximum bet cannot be lower than the big blind." };
+  if (settings.minimumBet > settings.maximumBet) return { error: "Minimum bet cannot exceed maximum bet." };
+  if (settings.minimumRaise > settings.maximumBet) return { error: "Minimum raise cannot exceed maximum bet." };
+  return { settings };
+}
+
+function handleAdminLogin(res, body) {
+  if (!passwordMatches(body?.password)) {
+    json(res, 403, { ok: false, error: "Incorrect admin password." });
+    return;
+  }
+  const sessionId = crypto.randomUUID();
+  adminSessions.add(sessionId);
+  setAdminCookie(res, sessionId);
+  json(res, 200, { ok: true, state: adminState() });
+}
+
+function handleAdminSettings(req, res, body) {
+  if (!requireAdmin(req, res)) return;
+  const result = validateTableSettings(body);
+  if (result.error) {
+    json(res, 400, { ok: false, error: result.error });
+    return;
+  }
+  Object.assign(tableSettings, result.settings);
+  if (!game.handActive) game.rules = { ...tableSettings };
+  saveTableSettings();
+  addLog("Admin updated table rules. New rules begin next hand.");
+  emitStateVersion();
+  json(res, 200, { ok: true, state: adminState() });
+}
+
+function handleAdminGrant(req, res, body) {
+  if (!requireAdmin(req, res)) return;
+  const amount = parsePositiveInteger(body?.amount, 1, 1_000_000_000);
+  if (amount === null) {
+    json(res, 400, { ok: false, error: "Grant amount must be a positive whole number." });
+    return;
+  }
+  game.players.forEach((player) => {
+    player.stack = Math.min(Number.MAX_SAFE_INTEGER, player.stack + amount);
+  });
+  addLog(`Admin grants ${amount} Token to every seated player.`);
+  emitStateVersion();
+  json(res, 200, { ok: true, state: adminState() });
+}
+
+function handleAdminLogout(req, res) {
+  adminSessions.delete(getAdminSession(req));
+  setAdminCookie(res, "", 0);
+  json(res, 200, { ok: true });
+}
+
+function serveFile(res, filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  const type = MIME[ext] || "application/octet-stream";
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      send(res, 404, "Not found", { "Content-Type": "text/plain; charset=utf-8" });
+      return;
+    }
+    send(res, 200, data, { "Content-Type": type });
+  });
+}
+
+function safeJoin(base, target) {
+  const targetPath = path.resolve(base, target);
+  const relative = path.relative(base, targetPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return null;
+  return targetPath;
+}
+
+function routeRequest(req, res) {
+  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+  const pathname = url.pathname;
+
+  if (req.method === "GET" && pathname === "/") {
+    serveFile(res, path.join(publicDir, "index.html"));
+    return;
+  }
+
+  if (req.method === "GET" && ["/admin", "/admin/", "/server", "/server/"].includes(pathname)) {
+    serveFile(res, path.join(publicDir, "admin.html"));
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/state") {
+    maintenanceTick();
+    const sid = getSid(req);
+    if (sid) {
+      const viewer = findPlayerBySid(sid);
+      if (viewer) touchPlayer(viewer);
+    }
+    json(res, 200, { ok: true, state: stateFor(sid) });
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/login") {
+    handleJsonRoute(req, res, (body) => handleLogin(req, res, body));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/action") {
+    handleJsonRoute(req, res, (body) => handleActionRequest(req, res, body));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/admin/login") {
+    handleJsonRoute(req, res, (body) => handleAdminLogin(res, body));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/admin/logout") {
+    handleAdminLogout(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && pathname === "/api/admin/state") {
+    if (!requireAdmin(req, res)) return;
+    json(res, 200, { ok: true, state: adminState() });
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/admin/settings") {
+    handleJsonRoute(req, res, (body) => handleAdminSettings(req, res, body));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/admin/grant") {
+    handleJsonRoute(req, res, (body) => handleAdminGrant(req, res, body));
+    return;
+  }
+
+  if (req.method === "GET" && pathname.startsWith("/")) {
+    const asset = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+    const file = safeJoin(publicDir, asset);
+    if (!file || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+      send(res, 404, "Not found", { "Content-Type": "text/plain; charset=utf-8" });
+      return;
+    }
+    serveFile(res, file);
+    return;
+  }
+
+  send(res, 405, "Method not allowed", { "Content-Type": "text/plain; charset=utf-8" });
+}
+
+function postBlind(player, amount, label) {
+  const paid = Math.min(amount, player.stack);
+  player.stack -= paid;
+  player.bet += paid;
+  player.totalBet += paid;
+  game.pot += paid;
+  if (player.stack === 0) player.allIn = true;
+  addLog(`${player.name} posts ${label} ${paid}.`);
+}
+
+http.createServer((req, res) => {
+  try {
+    routeRequest(req, res);
+  } catch (error) {
+    console.error(error);
+    if (!res.headersSent) {
+      json(res, 500, { ok: false, error: "Internal server error." });
+    } else {
+      res.end();
+    }
+  }
+}).listen(PORT, () => {
+  console.log(`River Room is running on http://localhost:${PORT}`);
+  console.log(`Server settings: http://localhost:${PORT}/server`);
+  if (!process.env.ADMIN_PASSWORD) console.log("Admin password: riverroom-admin (set ADMIN_PASSWORD to change it)");
+});
+
+setInterval(maintenanceTick, 1000).unref();

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>River Room | Texas Hold'em</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="River Room home">
+          <span class="brand-mark">R</span>
+          <span>RIVER ROOM</span>
+        </a>
+        <div class="table-title">
+          <span class="online-dot"></span>
+          <span>NO LIMIT HOLD'EM</span>
+          <span class="divider"></span>
+          <span id="blind-level">25 / 50</span>
+        </div>
+        <div class="top-actions">
+          <span class="connection" id="connection-status">连接中</span>
+          <button class="icon-button" id="sound-button" type="button" aria-label="切换提示音" data-tooltip="提示音">♪</button>
+        </div>
+      </header>
+
+      <section class="game-layout">
+        <aside class="side-panel left-panel">
+          <div class="panel-heading">
+            <span>牌局记录</span>
+            <span class="muted">LIVE</span>
+          </div>
+          <div class="hand-history" id="hand-history" aria-live="polite"></div>
+          <div class="chat-placeholder">这里会实时显示发牌、下注和结算记录。</div>
+        </aside>
+
+        <section class="table-zone" aria-label="Texas Hold'em table">
+          <div class="table-ambient"></div>
+          <div class="poker-table">
+            <div class="table-rail"></div>
+            <div class="felt">
+              <div class="table-center">
+                <div class="street-label" id="street-label">Waiting for players</div>
+                <div class="pot" id="pot">POT <strong>0</strong></div>
+                <div class="board" id="board" aria-label="Community cards"></div>
+              </div>
+              <div class="seat-ring" id="seat-ring"></div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="side-panel right-panel">
+          <div class="panel-heading">
+            <span>牌桌</span>
+            <span class="muted" id="player-count">0 / 5</span>
+          </div>
+          <div class="rules-list">
+            <div><span>模式</span><strong>标准局</strong></div>
+            <div><span>盲注</span><strong id="rules-blinds">25 / 50</strong></div>
+            <div><span>初始 Token</span><strong id="rules-buyin">2,000</strong></div>
+            <div><span>下注范围</span><strong id="rules-bet-range">50 - 2,000</strong></div>
+            <div><span>最小加注</span><strong id="rules-min-raise">50</strong></div>
+          </div>
+          <div class="status-card">
+            <span class="eyebrow">你的状态</span>
+            <strong id="status-copy">登录后即可入座。</strong>
+          </div>
+        </aside>
+      </section>
+
+      <section class="action-dock" aria-label="Betting controls">
+        <div class="action-context">
+          <span id="turn-copy">等待入座</span>
+          <strong id="call-copy">-</strong>
+        </div>
+        <div class="action-controls">
+          <button class="action-button fold" id="fold-button" type="button">弃牌</button>
+          <button class="action-button" id="check-button" type="button">过牌</button>
+          <button class="action-button primary" id="call-button" type="button">跟注</button>
+        </div>
+        <div class="raise-control">
+          <label for="raise-slider">加注到 <output id="raise-output">100</output></label>
+          <div class="raise-inputs">
+            <input id="raise-slider" type="range" min="100" max="2000" step="25" value="100" />
+            <button class="action-button raise" id="raise-button" type="button">加注</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="login-screen" id="login-screen">
+      <div class="login-card">
+        <div class="login-brand"><span class="brand-mark">R</span> RIVER ROOM</div>
+        <p class="eyebrow">私人牌桌</p>
+        <h1>入座开局</h1>
+        <p class="login-copy">服务端负责洗牌、发牌与结算。空位由会随机下注的电脑玩家补齐。</p>
+        <form id="login-form">
+          <label for="name-input">玩家名称</label>
+          <input id="name-input" maxlength="14" autocomplete="nickname" placeholder="输入你的名字" required />
+          <button class="enter-button" type="submit">进入牌桌</button>
+        </form>
+        <p class="login-note">其他浏览器或同一局域网设备访问这个服务地址，也可以加入同一桌。</p>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

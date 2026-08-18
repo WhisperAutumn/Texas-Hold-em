@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>River Room | 服务器设置</title>
+    <link rel="stylesheet" href="/admin.css" />
+  </head>
+  <body>
+    <header class="admin-topbar">
+      <a class="brand" href="/" aria-label="返回牌桌"><span class="brand-mark">R</span><span>RIVER ROOM</span></a>
+      <div class="topbar-meta"><span class="status-dot"></span><span id="connection-status">连接中</span><span class="divider"></span><span>SERVER CLIENT</span></div>
+      <button class="text-button" id="logout-button" type="button">退出</button>
+    </header>
+
+    <main class="admin-shell" id="admin-shell" hidden>
+      <section class="page-heading">
+        <div>
+          <p class="eyebrow">SERVER SETTINGS</p>
+          <h1>服务器设置</h1>
+          <p class="heading-copy">查看服务器连接信息，并管理牌桌 Token、盲注和下注边界。</p>
+        </div>
+        <div class="table-status">
+          <span id="phase-label">等待玩家</span>
+          <strong id="pot-label">底池 0</strong>
+        </div>
+      </section>
+
+      <section class="admin-section server-section">
+        <div class="section-heading"><div><span class="section-kicker">CONNECTION</span><h2>服务器连接</h2></div><span id="uptime-label">运行 0 分钟</span></div>
+        <div class="server-info-grid">
+          <div><span>监听端口</span><strong id="server-port">3000</strong></div>
+          <div class="address-block"><span>本机玩家地址</span><strong id="local-player-url">http://localhost:3000</strong></div>
+          <div class="address-block wide"><span>局域网玩家地址</span><div id="lan-player-urls"></div></div>
+        </div>
+      </section>
+
+      <div class="admin-grid">
+        <section class="admin-section rules-section">
+          <div class="section-heading"><div><span class="section-kicker">RULES</span><h2>下一手规则</h2></div><span class="pending-badge" id="rule-state">待保存</span></div>
+          <form id="settings-form" class="settings-form">
+            <label>新玩家初始 Token<input name="startingTokens" type="number" min="100" step="1" required /></label>
+            <label>小盲注<input name="smallBlind" type="number" min="1" step="1" required /></label>
+            <label>大盲注<input name="bigBlind" type="number" min="1" step="1" required /></label>
+            <label>最低下注<input name="minimumBet" type="number" min="1" step="1" required /></label>
+            <label>单轮最高下注<input name="maximumBet" type="number" min="1" step="1" required /></label>
+            <label>最小加注幅度<input name="minimumRaise" type="number" min="1" step="1" required /></label>
+            <button class="primary-button" type="submit">保存规则</button>
+          </form>
+          <p class="section-note">最低下注用于本轮第一次下注；最小加注是超过当前下注额所需增加的最低 Token。</p>
+        </section>
+
+        <section class="admin-section grant-section">
+          <div class="section-heading"><div><span class="section-kicker">TOKENS</span><h2>发放 Token</h2></div></div>
+          <form id="grant-form" class="grant-form">
+            <label>每位玩家增加<input id="grant-amount" type="number" min="1" step="1" value="1000" required /></label>
+            <button class="primary-button" type="submit">给全桌发放</button>
+          </form>
+          <p class="section-note">会给当前牌桌上的真人和 AI 都增加余额；本手已经全下的玩家下一手才能使用。</p>
+        </section>
+      </div>
+
+      <section class="admin-section players-section">
+        <div class="section-heading"><div><span class="section-kicker">LIVE TABLE</span><h2>当前玩家</h2></div><span id="player-count">0 人</span></div>
+        <div class="players-table-wrap">
+          <table>
+            <thead><tr><th>玩家</th><th>类型</th><th>状态</th><th>筹码</th><th>本轮下注</th></tr></thead>
+            <tbody id="players-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div class="login-screen" id="login-screen">
+      <form class="login-panel" id="login-form">
+        <span class="brand-mark">R</span>
+        <p class="eyebrow">PRIVATE ACCESS</p>
+        <h1>服务器管理员登录</h1>
+        <label for="password-input">管理密码</label>
+        <input id="password-input" type="password" autocomplete="current-password" required />
+        <button class="primary-button" type="submit">进入控制台</button>
+        <p class="login-note">密码由启动服务时的 ADMIN_PASSWORD 环境变量控制。</p>
+      </form>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script src="/admin.js"></script>
+  </body>
+</html>
