@@ -1,6 +1,6 @@
-# River Room 德州扑克
+# River Room 德州Token
 
-一个支持局域网多人联机的 Texas Hold'em（德州扑克）游戏。Node.js 服务端负责洗牌、发牌、下注回合、AI 行动和牌局结算，玩家通过浏览器或 Windows 玩家客户端加入同一张牌桌。
+一个支持局域网多人联机的 Texas Hold'em（德州Token）游戏。Node.js 服务端负责洗牌、发牌、下注回合、AI 行动和牌局结算，玩家通过浏览器或 Windows 玩家客户端加入同一张牌桌。
 
 ## 主要功能
 
