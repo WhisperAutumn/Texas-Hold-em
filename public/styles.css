@@ -615,6 +615,43 @@ button {
   gap: 9px;
 }
 
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 4px 0 10px;
+}
+
+.auth-tab {
+  min-height: 34px;
+  border: 1px solid rgba(220, 237, 221, 0.24);
+  border-radius: 4px;
+  background: transparent;
+  color: #9ab0a4;
+  font-size: 12px;
+}
+
+.auth-tab.active {
+  border-color: #e5b75e;
+  background: rgba(229, 183, 94, 0.12);
+  color: #f4cd7c;
+}
+
+.logout-button {
+  border: 0;
+  background: transparent;
+  color: #b9cabe;
+  font-size: 11px;
+}
+
+.logout-button:hover { color: #f4cd7c; }
+
+.confirm-password-field {
+  display: grid;
+  gap: 9px;
+  width: 100%;
+}
+
 .login-card label {
   color: #9cb5a8;
   font-family: Consolas, "Microsoft YaHei", monospace;

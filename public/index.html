@@ -21,6 +21,7 @@
         </div>
         <div class="top-actions">
           <span class="connection" id="connection-status">连接中</span>
+          <button class="logout-button" id="player-logout-button" type="button" hidden>退出登录</button>
           <button class="icon-button" id="sound-button" type="button" aria-label="切换提示音" data-tooltip="提示音">♪</button>
         </div>
       </header>
@@ -93,14 +94,23 @@
       <div class="login-card">
         <div class="login-brand"><span class="brand-mark">R</span> RIVER ROOM</div>
         <p class="eyebrow">私人牌桌</p>
-        <h1>入座开局</h1>
-        <p class="login-copy">服务端负责洗牌、发牌与结算。空位由会随机下注的电脑玩家补齐。</p>
+        <h1>登录入座</h1>
+        <p class="login-copy">账号和 Token 由当前服务器保存。空位由会随机下注的电脑玩家补齐。</p>
+        <div class="auth-tabs" role="tablist" aria-label="账号操作">
+          <button class="auth-tab active" type="button" data-auth-mode="login">登录</button>
+          <button class="auth-tab" type="button" data-auth-mode="register">注册</button>
+        </div>
         <form id="login-form">
-          <label for="name-input">玩家名称</label>
-          <input id="name-input" maxlength="14" autocomplete="nickname" placeholder="输入你的名字" required />
-          <button class="enter-button" type="submit">进入牌桌</button>
+          <label for="username-input">账号</label>
+          <input id="username-input" maxlength="20" autocomplete="username" placeholder="2-20 位账号" required />
+          <label for="password-input">密码</label>
+          <input id="password-input" type="password" minlength="6" maxlength="72" autocomplete="current-password" placeholder="至少 6 位" required />
+          <label class="confirm-password-field" id="confirm-password-field" for="password-confirm-input" hidden>确认密码
+            <input id="password-confirm-input" type="password" minlength="6" maxlength="72" autocomplete="new-password" placeholder="再次输入密码" />
+          </label>
+          <button class="enter-button" id="auth-submit" type="submit">登录并入座</button>
         </form>
-        <p class="login-note">其他浏览器或同一局域网设备访问这个服务地址，也可以加入同一桌。</p>
+        <p class="login-note" id="auth-note">首次使用请先注册；登录状态会保留在此浏览器中。</p>
       </div>
     </div>
 

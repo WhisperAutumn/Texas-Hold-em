@@ -17,6 +17,8 @@ const elements = {
   ruleState: document.querySelector("#rule-state"),
   playerCount: document.querySelector("#player-count"),
   playersBody: document.querySelector("#players-body"),
+  accountCount: document.querySelector("#account-count"),
+  accountsBody: document.querySelector("#accounts-body"),
   toast: document.querySelector("#toast")
 };
 
@@ -69,6 +71,26 @@ function renderPlayers(state) {
   }).join("");
 }
 
+function formatTimestamp(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function renderAccounts(state) {
+  const accounts = state.accounts || [];
+  elements.accountCount.textContent = `${accounts.length} 个`;
+  elements.accountsBody.innerHTML = accounts.map((account) => `
+    <tr>
+      <td>${account.username}</td>
+      <td>${account.displayName}</td>
+      <td class="stack-value">${formatTokens(account.tokens)}</td>
+      <td class="player-state ${account.online ? "active" : "offline"}">${account.online ? "在线" : "离线"}</td>
+      <td>${formatTimestamp(account.lastLoginAt)}</td>
+    </tr>
+  `).join("") || '<tr><td colspan="5" class="empty-row">暂无账号</td></tr>';
+}
+
 function formatUptime(seconds) {
   if (seconds < 60) return `${seconds} 秒`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟`;
@@ -92,6 +114,7 @@ function renderState(state, hydrate = false) {
   elements.ruleState.textContent = state.takesEffectNextHand ? "下一手生效" : "当前已生效";
   renderServer(state.server);
   renderPlayers(state);
+  renderAccounts(state);
   if (hydrate) {
     setFormValues(state.pendingSettings);
     settingsHydrated = true;

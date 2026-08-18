@@ -1,7 +1,14 @@
 const elements = {
   loginScreen: document.querySelector("#login-screen"),
   loginForm: document.querySelector("#login-form"),
-  nameInput: document.querySelector("#name-input"),
+  usernameInput: document.querySelector("#username-input"),
+  passwordInput: document.querySelector("#password-input"),
+  passwordConfirmInput: document.querySelector("#password-confirm-input"),
+  confirmPasswordField: document.querySelector("#confirm-password-field"),
+  authTabs: [...document.querySelectorAll("[data-auth-mode]")],
+  authSubmit: document.querySelector("#auth-submit"),
+  authNote: document.querySelector("#auth-note"),
+  playerLogoutButton: document.querySelector("#player-logout-button"),
   connectionStatus: document.querySelector("#connection-status"),
   streetLabel: document.querySelector("#street-label"),
   pot: document.querySelector("#pot"),
@@ -34,6 +41,7 @@ let toastTimer = null;
 let requestInFlight = false;
 let actionInFlight = false;
 let lastTurnPlayerId = null;
+let authMode = "login";
 
 const suitGlyphs = { S: "&spades;", H: "&hearts;", D: "&diams;", C: "&clubs;" };
 const avatarColors = ["#5f7d7f", "#9a7554", "#697e54", "#795d87", "#4c7287"];
@@ -78,6 +86,19 @@ function playTurnTone() {
   oscillator.start();
   oscillator.stop(context.currentTime + 0.16);
   oscillator.addEventListener("ended", () => context.close());
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const registering = mode === "register";
+  elements.authTabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.authMode === mode));
+  elements.confirmPasswordField.hidden = !registering;
+  elements.passwordInput.autocomplete = registering ? "new-password" : "current-password";
+  elements.passwordConfirmInput.required = registering;
+  elements.authSubmit.textContent = registering ? "注册并入座" : "登录并入座";
+  elements.authNote.textContent = registering
+    ? "账号和初始 Token 会保存到当前服务器。"
+    : "首次使用请先注册；登录状态会保留在此浏览器中。";
 }
 
 async function api(path, options = {}) {
@@ -165,7 +186,7 @@ function renderControls(state) {
   if (!me) {
     elements.turnCopy.textContent = "等待入座";
     elements.callCopy.textContent = "-";
-    elements.statusCopy.textContent = "输入名字后即可加入牌桌。";
+    elements.statusCopy.textContent = "登录账号后即可加入牌桌。";
   } else if (controls.canAct) {
     elements.turnCopy.textContent = "轮到你了";
     elements.callCopy.textContent = toCall ? `需跟注 ${formatChips(toCall)}` : "可以过牌";
@@ -188,6 +209,7 @@ function renderState(state) {
   lastTurnPlayerId = state.currentPlayerId;
 
   elements.loginScreen.classList.toggle("hidden", Boolean(me));
+  elements.playerLogoutButton.hidden = !me;
   elements.streetLabel.textContent = state.streetLabel;
   elements.pot.innerHTML = `底池 <strong>${formatChips(state.pot)}</strong>`;
   elements.board.innerHTML = state.board.map((card) => cardHtml(card)).join("");
@@ -239,21 +261,45 @@ async function sendAction(action) {
 
 elements.loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const name = elements.nameInput.value.trim();
-  if (!name) return;
-  const submit = elements.loginForm.querySelector("button[type='submit']");
-  submit.disabled = true;
+  const username = elements.usernameInput.value.trim();
+  const password = elements.passwordInput.value;
+  if (!username || !password) return;
+  if (authMode === "register" && password !== elements.passwordConfirmInput.value) {
+    showToast("两次输入的密码不一致。");
+    return;
+  }
+  elements.authSubmit.disabled = true;
   try {
-    const payload = await api("/api/login", {
+    const payload = await api(`/api/account/${authMode}`, {
       method: "POST",
-      body: JSON.stringify({ name })
+      body: JSON.stringify({ username, password, passwordConfirm: elements.passwordConfirmInput.value })
     });
+    elements.passwordInput.value = "";
+    elements.passwordConfirmInput.value = "";
     renderState(payload.state);
     showToast(`欢迎入座，${payload.state.me.name}。`);
   } catch (error) {
     showToast(error.message);
   } finally {
-    submit.disabled = false;
+    elements.authSubmit.disabled = false;
+  }
+});
+
+elements.authTabs.forEach((tab) => {
+  tab.addEventListener("click", () => setAuthMode(tab.dataset.authMode));
+});
+
+elements.playerLogoutButton.addEventListener("click", async () => {
+  try {
+    await api("/api/account/logout", { method: "POST", body: "{}" });
+    me = null;
+    latestState = null;
+    elements.loginForm.reset();
+    setAuthMode("login");
+    await refreshState();
+    showToast("已退出登录。");
+  } catch (error) {
+    showToast(error.message);
   }
 });
 

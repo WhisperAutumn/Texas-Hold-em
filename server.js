@@ -29,6 +29,9 @@ const MIME = {
 const publicDir = path.join(__dirname, "public");
 const dataDir = path.join(__dirname, "data");
 const settingsFile = path.join(dataDir, "table-settings.json");
+const accountsFile = path.join(dataDir, "accounts.json");
+const authSecretFile = path.join(dataDir, "auth-secret.txt");
+const AUTH_TOKEN_MAX_AGE = 60 * 60 * 24 * 30;
 const DEFAULT_SETTINGS = {
   startingTokens: 2000,
   smallBlind: 25,
@@ -53,6 +56,35 @@ function saveTableSettings() {
 }
 
 const tableSettings = loadTableSettings();
+function loadAccounts() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(accountsFile, "utf8"));
+    return new Map((Array.isArray(saved) ? saved : []).map((account) => [account.id, account]));
+  } catch {
+    return new Map();
+  }
+}
+
+function saveAccounts() {
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(accountsFile, `${JSON.stringify([...accounts.values()], null, 2)}\n`, "utf8");
+}
+
+function loadOrCreateAuthSecret() {
+  try {
+    const secret = fs.readFileSync(authSecretFile, "utf8").trim();
+    if (secret) return secret;
+  } catch {
+    // The secret is created on the first server start.
+  }
+  const secret = crypto.randomBytes(32).toString("hex");
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(authSecretFile, `${secret}\n`, "utf8");
+  return secret;
+}
+
+const accounts = loadAccounts();
+const authSecret = loadOrCreateAuthSecret();
 const adminSessions = new Set();
 const game = {
   players: [],
@@ -325,6 +357,7 @@ function awardUncontested() {
   game.currentIndex = -1;
   addLog(`${winner.name} wins ${game.pot} without a showdown.`);
   game.pot = 0;
+  syncAccountBalances();
   emitStateVersion();
   scheduleNextHand();
 }
@@ -345,6 +378,7 @@ function showdown() {
   game.currentIndex = -1;
   addLog(`${winners.map((entry) => entry.player.name).join(" & ")} win ${game.pot} with ${scoreName(best.score)}.`);
   game.pot = 0;
+  syncAccountBalances();
   emitStateVersion();
   scheduleNextHand();
 }
@@ -515,8 +549,18 @@ function startHand() {
   game.board = [];
   game.pot = 0;
   game.deck = shuffle(createDeck());
+  let accountBalanceReset = false;
   game.players.forEach((player) => {
-    if (player.stack <= 0) player.stack = game.rules.startingTokens;
+    if (player.stack <= 0) {
+      player.stack = game.rules.startingTokens;
+      if (player.accountId) {
+        const account = accounts.get(player.accountId);
+        if (account) {
+          account.tokens = player.stack;
+          accountBalanceReset = true;
+        }
+      }
+    }
     player.inHand = player.isBot || player.connected;
     player.folded = false;
     player.allIn = false;
@@ -525,6 +569,7 @@ function startHand() {
     player.totalBet = 0;
     player.actedAtBet = -1;
   });
+  if (accountBalanceReset) saveAccounts();
 
   game.dealerIndex = (game.dealerIndex + 1) % game.players.length;
   const smallBlindIndex = playerAfter(game.dealerIndex, (player) => player.inHand);
@@ -624,7 +669,40 @@ function getSid(req) {
 }
 
 function setSidCookie(res, sid) {
-  res.setHeader("Set-Cookie", `sid=${encodeURIComponent(sid)}; Path=/; HttpOnly; SameSite=Lax`);
+  appendCookie(res, `sid=${encodeURIComponent(sid)}; Path=/; HttpOnly; SameSite=Lax`);
+}
+
+function appendCookie(res, cookie) {
+  const existing = res.getHeader("Set-Cookie");
+  res.setHeader("Set-Cookie", existing ? [...(Array.isArray(existing) ? existing : [existing]), cookie] : cookie);
+}
+
+function setAuthCookie(res, accountId) {
+  const payload = Buffer.from(JSON.stringify({ accountId, exp: Math.floor(Date.now() / 1000) + AUTH_TOKEN_MAX_AGE })).toString("base64url");
+  const signature = crypto.createHmac("sha256", authSecret).update(payload).digest("base64url");
+  appendCookie(res, `auth_token=${payload}.${signature}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${AUTH_TOKEN_MAX_AGE}`);
+}
+
+function clearAuthCookies(res) {
+  appendCookie(res, "auth_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
+  appendCookie(res, "sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
+}
+
+function getAccountFromRequest(req) {
+  const token = parseCookies(req.headers.cookie || "").auth_token || "";
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return null;
+  const expected = crypto.createHmac("sha256", authSecret).update(payload).digest("base64url");
+  const suppliedBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (suppliedBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(suppliedBuffer, expectedBuffer)) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!decoded.accountId || Number(decoded.exp) < Math.floor(Date.now() / 1000)) return null;
+    return accounts.get(decoded.accountId) || null;
+  } catch {
+    return null;
+  }
 }
 
 function readBody(req) {
@@ -652,12 +730,10 @@ function handleJsonRoute(req, res, handler) {
         json(res, 400, { ok: false, error: "Invalid JSON." });
         return;
       }
-      try {
-        handler(body);
-      } catch (error) {
+      Promise.resolve().then(() => handler(body)).catch((error) => {
         console.error(error);
         if (!res.headersSent) json(res, 500, { ok: false, error: "Internal server error." });
-      }
+      });
     })
     .catch((error) => {
       if (!res.headersSent) json(res, 400, { ok: false, error: error.message });
@@ -673,6 +749,22 @@ function sanitizeName(input) {
 
 function findPlayerBySid(sid) {
   return game.players.find((player) => !player.isBot && player.sid === sid);
+}
+
+function findPlayerByAccountId(accountId) {
+  return game.players.find((player) => !player.isBot && player.accountId === accountId);
+}
+
+function syncAccountBalances() {
+  let changed = false;
+  game.players.forEach((player) => {
+    if (!player.accountId) return;
+    const account = accounts.get(player.accountId);
+    if (!account || account.tokens === player.stack) return;
+    account.tokens = player.stack;
+    changed = true;
+  });
+  if (changed) saveAccounts();
 }
 
 function getLoginPayload(req, body) {
@@ -727,6 +819,168 @@ function createOrUpdatePlayer(req, res, body) {
   if (!game.handActive) startHand();
   else ensureBotSeats();
   return player;
+}
+
+function createOrUpdateAccountPlayer(req, res, account) {
+  const sid = getSid(req) || crypto.randomUUID();
+  const existing = findPlayerByAccountId(account.id);
+  if (existing) {
+    existing.sid = sid;
+    existing.name = account.displayName;
+    touchPlayer(existing);
+    setSidCookie(res, sid);
+    setAuthCookie(res, account.id);
+    return existing;
+  }
+
+  const replacementBotIndex = game.players.findIndex((player) => player.isBot && !player.inHand);
+  if (game.players.length >= MAX_SEATS && replacementBotIndex === -1) return null;
+  const player = {
+    id: crypto.randomUUID(),
+    sid,
+    accountId: account.id,
+    name: account.displayName,
+    stack: Math.max(0, Number(account.tokens) || tableSettings.startingTokens),
+    seat: 0,
+    isBot: false,
+    connected: true,
+    lastSeen: Date.now(),
+    inHand: false,
+    folded: false,
+    allIn: false,
+    cards: [],
+    bet: 0,
+    totalBet: 0,
+    actedAtBet: -1
+  };
+  if (replacementBotIndex !== -1) game.players.splice(replacementBotIndex, 1, player);
+  else game.players.push(player);
+  normalizeSeats();
+  touchPlayer(player);
+  setSidCookie(res, sid);
+  setAuthCookie(res, account.id);
+  addLog(`${player.name} joins the table.`);
+  emitStateVersion();
+  if (!game.handActive) startHand();
+  else ensureBotSeats();
+  return player;
+}
+
+function normalizeUsername(input) {
+  return String(input || "").trim();
+}
+
+function findAccountByUsername(username) {
+  const normalized = username.toLocaleLowerCase();
+  return [...accounts.values()].find((account) => account.username.toLocaleLowerCase() === normalized) || null;
+}
+
+function validateAccountInput(body, requireConfirm = false) {
+  const username = normalizeUsername(body?.username);
+  const password = String(body?.password || "");
+  if (!/^[A-Za-z0-9_\u4e00-\u9fff]{2,20}$/.test(username)) return { error: "账号需为 2-20 位中文、字母、数字或下划线。" };
+  if (password.length < 6 || password.length > 72) return { error: "密码长度需为 6-72 位。" };
+  if (requireConfirm && password !== String(body?.passwordConfirm || "")) return { error: "两次输入的密码不一致。" };
+  return { username, password };
+}
+
+function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, salt, 64, (error, derivedKey) => {
+      if (error) reject(error);
+      else resolve({ salt, passwordHash: derivedKey.toString("hex") });
+    });
+  });
+}
+
+async function passwordMatchesAccount(password, account) {
+  const result = await hashPassword(password, account.salt);
+  const supplied = Buffer.from(result.passwordHash, "hex");
+  const expected = Buffer.from(account.passwordHash, "hex");
+  return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+}
+
+async function handleAccountRegister(req, res, body) {
+  const result = validateAccountInput(body, true);
+  if (result.error) {
+    json(res, 400, { ok: false, error: result.error });
+    return;
+  }
+  if (findAccountByUsername(result.username)) {
+    json(res, 409, { ok: false, error: "这个账号已经存在。" });
+    return;
+  }
+  const { salt, passwordHash } = await hashPassword(result.password);
+  if (findAccountByUsername(result.username)) {
+    json(res, 409, { ok: false, error: "这个账号已经存在。" });
+    return;
+  }
+  const account = {
+    id: crypto.randomUUID(),
+    username: result.username,
+    displayName: sanitizeName(body?.displayName || result.username),
+    salt,
+    passwordHash,
+    tokens: tableSettings.startingTokens,
+    createdAt: new Date().toISOString(),
+    lastLoginAt: new Date().toISOString()
+  };
+  accounts.set(account.id, account);
+  saveAccounts();
+  const player = createOrUpdateAccountPlayer(req, res, account);
+  if (!player) {
+    json(res, 409, { ok: false, error: "账号已创建，但牌桌当前已满，请稍后登录。" });
+    return;
+  }
+  json(res, 200, { ok: true, state: stateFor(player.sid) });
+}
+
+async function handleAccountLogin(req, res, body) {
+  const username = normalizeUsername(body?.username);
+  const password = String(body?.password || "");
+  const account = findAccountByUsername(username);
+  if (!account || !(await passwordMatchesAccount(password, account))) {
+    json(res, 403, { ok: false, error: "账号或密码错误。" });
+    return;
+  }
+  account.lastLoginAt = new Date().toISOString();
+  saveAccounts();
+  const player = createOrUpdateAccountPlayer(req, res, account);
+  if (!player) {
+    json(res, 409, { ok: false, error: "牌桌当前已满，请稍后再试。" });
+    return;
+  }
+  json(res, 200, { ok: true, state: stateFor(player.sid) });
+}
+
+function restoreAccountSession(req, res) {
+  const account = getAccountFromRequest(req);
+  if (!account) return null;
+  const existing = findPlayerByAccountId(account.id);
+  if (existing) {
+    existing.sid = getSid(req) || crypto.randomUUID();
+    touchPlayer(existing);
+    setSidCookie(res, existing.sid);
+    return existing;
+  }
+  return createOrUpdateAccountPlayer(req, res, account);
+}
+
+function handleAccountLogout(req, res) {
+  const sid = getSid(req);
+  const player = sid ? findPlayerBySid(sid) : null;
+  if (player) {
+    player.connected = false;
+    player.lastSeen = 0;
+    player.sid = "";
+    if (!game.handActive) {
+      game.players = game.players.filter((candidate) => candidate !== player);
+      ensureBotSeats();
+    }
+    emitStateVersion();
+  }
+  clearAuthCookies(res);
+  json(res, 200, { ok: true });
 }
 
 function handleLogin(req, res, body) {
@@ -789,6 +1043,17 @@ function adminState() {
     pendingSettings: { ...tableSettings },
     activeRules: { ...game.rules },
     takesEffectNextHand,
+    accounts: [...accounts.values()].map((account) => {
+      const player = findPlayerByAccountId(account.id);
+      return {
+        username: account.username,
+        displayName: account.displayName,
+        tokens: account.tokens,
+        online: Boolean(player?.connected),
+        lastLoginAt: account.lastLoginAt,
+        createdAt: account.createdAt
+      };
+    }),
     table: {
       phase: game.phase,
       pot: game.pot,
@@ -876,7 +1141,12 @@ function handleAdminGrant(req, res, body) {
   }
   game.players.forEach((player) => {
     player.stack = Math.min(Number.MAX_SAFE_INTEGER, player.stack + amount);
+    if (player.accountId) {
+      const account = accounts.get(player.accountId);
+      if (account) account.tokens = player.stack;
+    }
   });
+  saveAccounts();
   addLog(`Admin grants ${amount} Token to every seated player.`);
   emitStateVersion();
   json(res, 200, { ok: true, state: adminState() });
@@ -923,10 +1193,13 @@ function routeRequest(req, res) {
 
   if (req.method === "GET" && pathname === "/api/state") {
     maintenanceTick();
-    const sid = getSid(req);
+    let sid = getSid(req);
+    let viewer = sid ? findPlayerBySid(sid) : null;
+    if (!viewer) viewer = restoreAccountSession(req, res);
+    if (viewer) sid = viewer.sid;
     if (sid) {
-      const viewer = findPlayerBySid(sid);
-      if (viewer) touchPlayer(viewer);
+      const current = findPlayerBySid(sid);
+      if (current) touchPlayer(current);
     }
     json(res, 200, { ok: true, state: stateFor(sid) });
     return;
@@ -934,6 +1207,21 @@ function routeRequest(req, res) {
 
   if (req.method === "POST" && pathname === "/api/login") {
     handleJsonRoute(req, res, (body) => handleLogin(req, res, body));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/account/register") {
+    handleJsonRoute(req, res, (body) => handleAccountRegister(req, res, body));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/account/login") {
+    handleJsonRoute(req, res, (body) => handleAccountLogin(req, res, body));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/account/logout") {
+    handleAccountLogout(req, res);
     return;
   }
 

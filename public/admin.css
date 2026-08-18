@@ -63,7 +63,8 @@ input:focus { border-color: #e5b75e; }
 #lan-player-urls button { width: fit-content; padding: 0; border: 0; background: transparent; color: #f3c66f; font-family: Consolas, monospace; font-size: 12px; text-align: left; }
 #lan-player-urls button:hover { text-decoration: underline; }
 
-.players-section { border-bottom: 0; }
+.players-section { border-bottom: 1px solid rgba(223, 234, 222, 0.14); }
+.accounts-section { border-bottom: 0; }
 .players-table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 th { padding: 0 12px 12px; color: #718d83; font-family: Consolas, monospace; font-size: 10px; font-weight: 400; text-align: left; text-transform: uppercase; }
@@ -74,6 +75,7 @@ th:first-child { padding-left: 0; }
 .player-state.active { color: #f3c66f; }
 .player-state.offline { color: #d89b96; }
 .stack-value { color: #f3c66f; font-family: Consolas, monospace; }
+.empty-row { color: #718d83; font-style: italic; }
 
 .login-screen { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 24px; background: rgba(8, 20, 23, 0.9); backdrop-filter: blur(10px); }
 .login-screen.hidden { display: none; }
