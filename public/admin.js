@@ -6,6 +6,10 @@ const elements = {
   settingsForm: document.querySelector("#settings-form"),
   grantForm: document.querySelector("#grant-form"),
   grantAmount: document.querySelector("#grant-amount"),
+  accountGrantForm: document.querySelector("#account-grant-form"),
+  accountGrantAmount: document.querySelector("#account-grant-amount"),
+  grantAccount: document.querySelector("#grant-account"),
+  accountGrantButton: document.querySelector("#account-grant-button"),
   logout: document.querySelector("#logout-button"),
   connection: document.querySelector("#connection-status"),
   phase: document.querySelector("#phase-label"),
@@ -79,7 +83,12 @@ function formatTimestamp(value) {
 
 function renderAccounts(state) {
   const accounts = state.accounts || [];
+  const selectedAccount = elements.grantAccount.value;
   elements.accountCount.textContent = `${accounts.length} 个`;
+  elements.grantAccount.innerHTML = accounts.map((account) => `<option value="${account.id}">${account.displayName}（${account.username}） · ${formatTokens(account.tokens)} Token</option>`).join("");
+  elements.grantAccount.disabled = accounts.length === 0;
+  elements.accountGrantButton.disabled = accounts.length === 0;
+  if (accounts.some((account) => account.id === selectedAccount)) elements.grantAccount.value = selectedAccount;
   elements.accountsBody.innerHTML = accounts.map((account) => `
     <tr>
       <td>${account.username}</td>
@@ -164,6 +173,20 @@ elements.grantForm.addEventListener("submit", async (event) => {
     const payload = await api("/api/admin/grant", { method: "POST", body: JSON.stringify({ amount: Number(elements.grantAmount.value) }) });
     renderState(payload.state);
     showToast("Token 已发放给全桌玩家。");
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+elements.accountGrantForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const payload = await api("/api/admin/account-grant", {
+      method: "POST",
+      body: JSON.stringify({ accountId: elements.grantAccount.value, amount: Number(elements.accountGrantAmount.value) })
+    });
+    renderState(payload.state);
+    showToast("Token 已发放给指定账号。");
   } catch (error) {
     showToast(error.message);
   }

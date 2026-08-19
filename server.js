@@ -1046,6 +1046,7 @@ function adminState() {
     accounts: [...accounts.values()].map((account) => {
       const player = findPlayerByAccountId(account.id);
       return {
+        id: account.id,
         username: account.username,
         displayName: account.displayName,
         tokens: account.tokens,
@@ -1152,6 +1153,30 @@ function handleAdminGrant(req, res, body) {
   json(res, 200, { ok: true, state: adminState() });
 }
 
+function handleAdminAccountGrant(req, res, body) {
+  if (!requireAdmin(req, res)) return;
+  const amount = parsePositiveInteger(body?.amount, 1, 1_000_000_000);
+  const accountId = String(body?.accountId || "");
+  const account = accounts.get(accountId);
+  if (amount === null) {
+    json(res, 400, { ok: false, error: "发放数量必须是正整数。" });
+    return;
+  }
+  if (!account) {
+    json(res, 404, { ok: false, error: "指定账号不存在。" });
+    return;
+  }
+
+  const player = findPlayerByAccountId(account.id);
+  const nextTokens = Math.min(Number.MAX_SAFE_INTEGER, (player ? player.stack : Number(account.tokens) || 0) + amount);
+  account.tokens = nextTokens;
+  if (player) player.stack = nextTokens;
+  saveAccounts();
+  addLog(`Admin grants ${amount} Token to ${account.displayName}.`);
+  emitStateVersion();
+  json(res, 200, { ok: true, state: adminState() });
+}
+
 function handleAdminLogout(req, res) {
   adminSessions.delete(getAdminSession(req));
   setAdminCookie(res, "", 0);
@@ -1253,6 +1278,11 @@ function routeRequest(req, res) {
 
   if (req.method === "POST" && pathname === "/api/admin/grant") {
     handleJsonRoute(req, res, (body) => handleAdminGrant(req, res, body));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/admin/account-grant") {
+    handleJsonRoute(req, res, (body) => handleAdminAccountGrant(req, res, body));
     return;
   }
 

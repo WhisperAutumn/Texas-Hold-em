@@ -55,6 +55,10 @@ input:focus { border-color: #e5b75e; }
 .section-note { margin: 18px 0 0; font-size: 11px; }
 .grant-form { display: grid; gap: 15px; }
 .grant-form .primary-button { width: 100%; }
+.account-grant-form { margin-top: 26px; padding-top: 24px; border-top: 1px solid rgba(223, 234, 222, 0.14); }
+select { width: 100%; height: 40px; padding: 0 10px; border: 1px solid rgba(223, 234, 222, 0.22); border-radius: 3px; outline: none; background: #0c1a1d; color: #f0f4ee; }
+select:focus { border-color: #e5b75e; }
+select:disabled { color: #718d83; }
 .server-info-grid { display: grid; grid-template-columns: 0.35fr 1fr 1.4fr; gap: 28px; }
 .server-info-grid > div { display: grid; align-content: start; gap: 8px; min-width: 0; }
 .server-info-grid span { color: #718d83; font-family: Consolas, monospace; font-size: 10px; text-transform: uppercase; }

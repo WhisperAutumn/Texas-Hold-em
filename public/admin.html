@@ -57,6 +57,12 @@
             <button class="primary-button" type="submit">给全桌发放</button>
           </form>
           <p class="section-note">会给当前牌桌上的真人和 AI 都增加余额；本手已经全下的玩家下一手才能使用。</p>
+          <form id="account-grant-form" class="grant-form account-grant-form">
+            <label>指定账号<select id="grant-account" required><option value="">暂无账号</option></select></label>
+            <label>增加 Token<input id="account-grant-amount" type="number" min="1" step="1" value="1000" required /></label>
+            <button class="primary-button" id="account-grant-button" type="submit">给指定账号发放</button>
+          </form>
+          <p class="section-note">指定账号即使当前离线也可以发放，余额会保存在服务器。</p>
         </section>
       </div>
 
