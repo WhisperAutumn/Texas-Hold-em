@@ -129,23 +129,22 @@ button {
 
 .game-layout {
   display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(580px, 4fr) minmax(150px, 0.8fr);
+  grid-template-columns: minmax(170px, 0.8fr) minmax(0, 4fr) minmax(170px, 0.8fr);
   gap: 24px;
   min-height: 0;
   padding: 18px 28px 8px;
-  transition: grid-template-columns 180ms ease;
 }
 
 .game-layout.left-collapsed {
-  grid-template-columns: 0 minmax(0, 1fr) minmax(150px, 0.8fr);
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 0.8fr);
 }
 
 .game-layout.right-collapsed {
-  grid-template-columns: minmax(150px, 0.8fr) minmax(0, 1fr) 0;
+  grid-template-columns: minmax(170px, 0.8fr) minmax(0, 1fr);
 }
 
 .game-layout.left-collapsed.right-collapsed {
-  grid-template-columns: 0 minmax(0, 1fr) 0;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .side-panel {
@@ -226,6 +225,13 @@ button {
 .game-layout.left-collapsed .left-panel,
 .game-layout.right-collapsed .right-panel {
   display: none;
+}
+
+.game-layout.left-collapsed .table-zone,
+.game-layout.right-collapsed .table-zone,
+.game-layout.left-collapsed.right-collapsed .table-zone {
+  grid-column: auto;
+  min-width: 0;
 }
 
 .muted,
