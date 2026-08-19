@@ -83,6 +83,54 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
 }
 
+function localizeHistoryEntry(entry) {
+  const scoreNames = {
+    "High card": "高牌",
+    "One pair": "一对",
+    "Two pair": "两对",
+    "Three of a kind": "三条",
+    Straight: "顺子",
+    Flush: "同花",
+    "Full house": "葫芦",
+    "Four of a kind": "四条",
+    "Straight flush": "同花顺"
+  };
+  if (entry === "Room created. Waiting for players.") return "房间已创建，等待玩家。";
+  if (entry === "Waiting for enough players.") return "等待足够的玩家。";
+  if (entry === "Admin updated table rules. New rules begin next hand.") return "管理员更新了牌局规则，将在下一手生效。";
+  let match = entry.match(/^(.+) joins the table\.$/);
+  if (match) return `${match[1]} 加入了牌桌。`;
+  match = entry.match(/^(.+) invited (.+)\.$/);
+  if (match) return `${match[1]} 邀请了 ${match[2]}。`;
+  match = entry.match(/^(.+) posts (small blind|big blind) (\d+)\.$/);
+  if (match) return `${match[1]} 下${match[2] === "small blind" ? "小盲注" : "大盲注"} ${match[3]}。`;
+  match = entry.match(/^(.+) folds\.$/);
+  if (match) return `${match[1]} 弃牌。`;
+  match = entry.match(/^(.+) checks\.$/);
+  if (match) return `${match[1]} 过牌。`;
+  match = entry.match(/^(.+) calls (\d+)\.$/);
+  if (match) return `${match[1]} 跟注 ${match[2]}。`;
+  match = entry.match(/^(.+) raises to (\d+)\.$/);
+  if (match) return `${match[1]} 加注到 ${match[2]}。`;
+  match = entry.match(/^(.+)'s turn\.$/);
+  if (match) return `轮到 ${match[1]}。`;
+  match = entry.match(/^Hand begins\. (.+) has the dealer button\.$/);
+  if (match) return `牌局开始，${match[1]} 担任庄家。`;
+  match = entry.match(/^(.+): (.+)\.$/);
+  if (match && ["Flop", "Turn", "River"].includes(match[1])) {
+    return `${{ Flop: "翻牌", Turn: "转牌", River: "河牌" }[match[1]]}：${match[2]}。`;
+  }
+  match = entry.match(/^(.+) wins (\d+) without a showdown\.$/);
+  if (match) return `${match[1]} 未经摊牌赢得 ${match[2]} Token。`;
+  match = entry.match(/^(.+) win (\d+) with (.+)\.$/);
+  if (match) return `${match[1]} 以${scoreNames[match[3]] || match[3]}赢得 ${match[2]} Token。`;
+  match = entry.match(/^Admin grants (\d+) Token to every seated player\.$/);
+  if (match) return `管理员给所有在座玩家发放 ${match[1]} Token。`;
+  match = entry.match(/^Admin grants (\d+) Token to (.+)\.$/);
+  if (match) return `管理员给 ${match[2]} 发放 ${match[1]} Token。`;
+  return entry;
+}
+
 function cardHtml(card, hidden = false) {
   if (hidden) return '<span class="card card-back" aria-label="暗牌"></span>';
   if (!card) return "";
@@ -283,7 +331,7 @@ function renderTable(state) {
   elements.streetLabel.textContent = state.streetLabel;
   elements.pot.innerHTML = `底池 <strong>${formatChips(state.pot)}</strong>`;
   elements.board.innerHTML = state.board.map((card) => cardHtml(card)).join("");
-  elements.handHistory.innerHTML = state.log.map((entry) => `<div class="history-item">${entry}</div>`).join("");
+  elements.handHistory.innerHTML = state.log.map((entry) => `<div class="history-item">${escapeHtml(localizeHistoryEntry(entry))}</div>`).join("");
   elements.playerCount.textContent = `${state.players.filter((player) => !player.isBot).length} / 5`;
   elements.blindLevel.textContent = `${formatChips(state.smallBlind)} / ${formatChips(state.bigBlind)}`;
   elements.rulesBlinds.textContent = elements.blindLevel.textContent;
