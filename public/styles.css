@@ -137,15 +137,15 @@ button {
 }
 
 .game-layout.left-collapsed {
-  grid-template-columns: 34px minmax(580px, 1fr) minmax(150px, 0.8fr);
+  grid-template-columns: 0 minmax(0, 1fr) minmax(150px, 0.8fr);
 }
 
 .game-layout.right-collapsed {
-  grid-template-columns: minmax(150px, 0.8fr) minmax(580px, 1fr) 34px;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(0, 1fr) 0;
 }
 
 .game-layout.left-collapsed.right-collapsed {
-  grid-template-columns: 34px minmax(580px, 1fr) 34px;
+  grid-template-columns: 0 minmax(0, 1fr) 0;
 }
 
 .side-panel {
@@ -190,6 +190,17 @@ button {
   line-height: 1;
 }
 
+.sidebar-controls {
+  display: flex;
+  gap: 5px;
+}
+
+.sidebar-control {
+  width: 27px;
+  height: 27px;
+  font-size: 18px;
+}
+
 .panel-toggle:hover {
   border-color: rgba(229, 183, 94, 0.65);
   color: #f3c66f;
@@ -214,24 +225,6 @@ button {
 
 .game-layout.left-collapsed .left-panel,
 .game-layout.right-collapsed .right-panel {
-  align-items: center;
-  padding-inline: 4px;
-}
-
-.game-layout.left-collapsed .left-panel .panel-heading,
-.game-layout.right-collapsed .right-panel .panel-heading {
-  justify-content: center;
-  width: 100%;
-}
-
-.game-layout.left-collapsed .left-panel .panel-heading > span,
-.game-layout.right-collapsed .right-panel .panel-heading > span {
-  display: none;
-}
-
-.game-layout.left-collapsed .left-panel .hand-history,
-.game-layout.left-collapsed .left-panel .chat-placeholder,
-.game-layout.right-collapsed .right-panel > :not(.panel-heading) {
   display: none;
 }
 

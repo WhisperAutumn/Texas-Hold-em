@@ -7,6 +7,8 @@ const elements = {
   gameLayout: document.querySelector("#game-layout"),
   leftPanelToggle: document.querySelector("#left-panel-toggle"),
   rightPanelToggle: document.querySelector("#right-panel-toggle"),
+  topLeftPanelToggle: document.querySelector("#top-left-panel-toggle"),
+  topRightPanelToggle: document.querySelector("#top-right-panel-toggle"),
   roomCount: document.querySelector("#room-count"),
   roomList: document.querySelector("#room-list"),
   createRoomForm: document.querySelector("#create-room-form"),
@@ -92,12 +94,18 @@ function readSidebarState() {
 function applySidebarState(state) {
   elements.gameLayout.classList.toggle("left-collapsed", state.left);
   elements.gameLayout.classList.toggle("right-collapsed", state.right);
-  elements.leftPanelToggle.textContent = state.left ? "›" : "‹";
-  elements.rightPanelToggle.textContent = state.right ? "‹" : "›";
-  elements.leftPanelToggle.setAttribute("aria-label", state.left ? "展开左侧栏" : "收起左侧栏");
-  elements.rightPanelToggle.setAttribute("aria-label", state.right ? "展开右侧栏" : "收起右侧栏");
-  elements.leftPanelToggle.dataset.tooltip = state.left ? "展开左侧栏" : "收起左侧栏";
-  elements.rightPanelToggle.dataset.tooltip = state.right ? "展开右侧栏" : "收起右侧栏";
+  const controls = [
+    [elements.leftPanelToggle, elements.topLeftPanelToggle, state.left, "›", "‹", "左侧栏"],
+    [elements.rightPanelToggle, elements.topRightPanelToggle, state.right, "‹", "›", "右侧栏"]
+  ];
+  controls.forEach(([panelControl, topControl, collapsed, collapsedIcon, openIcon, label]) => {
+    const action = `${collapsed ? "展开" : "收起"}${label}`;
+    [panelControl, topControl].forEach((control) => {
+      control.textContent = collapsed ? collapsedIcon : openIcon;
+      control.setAttribute("aria-label", action);
+      control.dataset.tooltip = action;
+    });
+  });
 }
 
 let sidebarState = readSidebarState();
@@ -475,6 +483,8 @@ elements.playerLogoutButton.addEventListener("click", logout);
 elements.lobbyLogoutButton.addEventListener("click", logout);
 elements.leftPanelToggle.addEventListener("click", () => toggleSidebar("left"));
 elements.rightPanelToggle.addEventListener("click", () => toggleSidebar("right"));
+elements.topLeftPanelToggle.addEventListener("click", () => toggleSidebar("left"));
+elements.topRightPanelToggle.addEventListener("click", () => toggleSidebar("right"));
 
 elements.createRoomForm.addEventListener("submit", async (event) => {
   event.preventDefault();
