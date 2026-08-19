@@ -28,6 +28,9 @@ button { cursor: pointer; }
 .divider { width: 1px; height: 12px; background: rgba(205, 226, 212, 0.22); }
 .text-button { border: 0; background: transparent; color: #d5e1d6; font-size: 11px; }
 .text-button:hover { color: #f5c46b; }
+.topbar-actions { display: flex; align-items: center; gap: 12px; }
+.lab-button { width: 26px; height: 26px; padding: 0; border: 1px solid rgba(223, 234, 222, 0.16); border-radius: 3px; background: transparent; color: #718d83; font-family: Consolas, monospace; font-size: 9px; }
+.lab-button:hover { border-color: rgba(229, 183, 94, 0.42); color: #d5ac5c; }
 
 .admin-shell { width: min(1180px, calc(100% - 56px)); margin: 0 auto; padding: 42px 0 60px; }
 .page-heading { display: flex; align-items: end; justify-content: space-between; gap: 28px; padding-bottom: 30px; border-bottom: 1px solid rgba(223, 234, 222, 0.14); }
@@ -69,6 +72,16 @@ select:disabled { color: #718d83; }
 
 .players-section { border-bottom: 1px solid rgba(223, 234, 222, 0.14); }
 .accounts-section { border-bottom: 0; }
+.deal-experiment-section { border-top: 1px solid rgba(229, 183, 94, 0.2); }
+.deal-experiment-form { display: grid; grid-template-columns: minmax(220px, 1.4fr) repeat(2, minmax(130px, 0.7fr)) auto; align-items: end; gap: 14px; }
+.deal-profile-list { display: grid; margin-top: 24px; border-top: 1px solid rgba(223, 234, 222, 0.1); }
+.deal-profile-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 12px 0; border-bottom: 1px solid rgba(223, 234, 222, 0.1); color: #b8c9c0; font-family: Consolas, monospace; font-size: 11px; }
+.deal-profile-row > span:first-child { display: grid; gap: 3px; }
+.deal-profile-row strong { color: #e3ebe3; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+.deal-profile-row small { color: #718d83; }
+.deal-experiment-footer { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+.deal-experiment-footer .section-note { max-width: 760px; }
+.text-button.danger { flex: 0 0 auto; color: #d89b96; }
 .players-table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 th { padding: 0 12px 12px; color: #718d83; font-family: Consolas, monospace; font-size: 10px; font-weight: 400; text-align: left; text-transform: uppercase; }
@@ -104,6 +117,9 @@ th:first-child { padding-left: 0; }
   .server-info-grid .wide { grid-column: 1 / -1; }
   .settings-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-form .primary-button { grid-column: 1 / -1; }
+  .deal-experiment-form { grid-template-columns: 1fr 1fr; }
+  .deal-experiment-form label:first-child, .deal-experiment-form .primary-button { grid-column: 1 / -1; }
+  .deal-experiment-footer { align-items: start; flex-direction: column; }
 }
 
 @media (max-width: 460px) {
@@ -111,5 +127,8 @@ th:first-child { padding-left: 0; }
   .server-info-grid .wide { grid-column: auto; }
   .settings-form { grid-template-columns: 1fr; }
   .settings-form .primary-button { grid-column: auto; }
+  .deal-experiment-form { grid-template-columns: 1fr; }
+  .deal-experiment-form label:first-child, .deal-experiment-form .primary-button { grid-column: auto; }
+  .deal-profile-row { align-items: start; flex-direction: column; gap: 7px; }
   th, td { padding-right: 8px; }
 }

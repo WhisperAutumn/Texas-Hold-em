@@ -10,6 +10,16 @@ const elements = {
   accountGrantAmount: document.querySelector("#account-grant-amount"),
   grantAccount: document.querySelector("#grant-account"),
   accountGrantButton: document.querySelector("#account-grant-button"),
+  dealExperimentToggle: document.querySelector("#deal-experiment-toggle"),
+  dealExperimentPanel: document.querySelector("#deal-experiment-panel"),
+  dealExperimentForm: document.querySelector("#deal-experiment-form"),
+  dealExperimentAccount: document.querySelector("#deal-experiment-account"),
+  strongChance: document.querySelector("#strong-chance"),
+  weakChance: document.querySelector("#weak-chance"),
+  dealExperimentSave: document.querySelector("#deal-experiment-save"),
+  dealExperimentStatus: document.querySelector("#deal-experiment-status"),
+  dealProfileList: document.querySelector("#deal-profile-list"),
+  dealExperimentReset: document.querySelector("#deal-experiment-reset"),
   logout: document.querySelector("#logout-button"),
   connection: document.querySelector("#connection-status"),
   phase: document.querySelector("#phase-label"),
@@ -29,6 +39,8 @@ const elements = {
 let toastTimer = null;
 let pollTimer = null;
 let settingsHydrated = false;
+let dealExperimentHydrated = false;
+let latestAdminState = null;
 
 function formatTokens(value) {
   return new Intl.NumberFormat("zh-CN").format(value || 0);
@@ -101,6 +113,37 @@ function renderAccounts(state) {
   `).join("") || '<tr><td colspan="5" class="empty-row">暂无账号</td></tr>';
 }
 
+function hydrateDealAccount(accountId, profiles) {
+  const profile = profiles.find((item) => item.accountId === accountId);
+  elements.strongChance.value = profile?.strongChance || 0;
+  elements.weakChance.value = profile?.weakChance || 0;
+}
+
+function renderDealExperiment(state, hydrate = false) {
+  const experiment = state.dealExperiment || { active: false, profiles: [] };
+  const profiles = experiment.profiles || [];
+  const selectedAccount = elements.dealExperimentAccount.value;
+  elements.dealExperimentAccount.innerHTML = (state.accounts || [])
+    .map((account) => `<option value="${account.id}">${account.displayName}（${account.username}）</option>`)
+    .join("");
+  elements.dealExperimentAccount.disabled = !(state.accounts || []).length;
+  elements.dealExperimentSave.disabled = !(state.accounts || []).length;
+  if ([...elements.dealExperimentAccount.options].some((option) => option.value === selectedAccount)) {
+    elements.dealExperimentAccount.value = selectedAccount;
+  }
+  if (hydrate || !dealExperimentHydrated) {
+    hydrateDealAccount(elements.dealExperimentAccount.value, profiles);
+    dealExperimentHydrated = true;
+  }
+  elements.dealExperimentStatus.textContent = profiles.length ? `${profiles.length} 个账号已设置` : "未启用";
+  elements.dealProfileList.innerHTML = profiles.map((profile) => `
+    <div class="deal-profile-row">
+      <span><strong>${profile.displayName}</strong><small>${profile.username}</small></span>
+      <span>大牌 ${profile.strongChance}% · 小牌 ${profile.weakChance}%</span>
+    </div>
+  `).join("") || '<p class="empty-row">暂无 M房发牌参数。</p>';
+}
+
 function formatUptime(seconds) {
   if (seconds < 60) return `${seconds} 秒`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟`;
@@ -116,6 +159,7 @@ function renderServer(server) {
 }
 
 function renderState(state, hydrate = false) {
+  latestAdminState = state;
   elements.shell.hidden = false;
   elements.loginScreen.classList.add("hidden");
   elements.connection.textContent = "已连接";
@@ -125,6 +169,7 @@ function renderState(state, hydrate = false) {
   renderServer(state.server);
   renderPlayers(state);
   renderAccounts(state);
+  renderDealExperiment(state, hydrate);
   if (hydrate) {
     setFormValues(state.pendingSettings);
     settingsHydrated = true;
@@ -188,6 +233,44 @@ elements.accountGrantForm.addEventListener("submit", async (event) => {
     });
     renderState(payload.state);
     showToast("Token 已发放给指定账号。");
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+elements.dealExperimentToggle.addEventListener("click", () => {
+  elements.dealExperimentPanel.hidden = !elements.dealExperimentPanel.hidden;
+});
+
+elements.dealExperimentAccount.addEventListener("change", () => {
+  const profiles = latestAdminState?.dealExperiment?.profiles || [];
+  hydrateDealAccount(elements.dealExperimentAccount.value, profiles);
+});
+
+elements.dealExperimentForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const payload = await api("/api/admin/deal-profile", {
+      method: "POST",
+      body: JSON.stringify({
+        accountId: elements.dealExperimentAccount.value,
+        strongChance: Number(elements.strongChance.value),
+        weakChance: Number(elements.weakChance.value)
+      })
+    });
+    renderState(payload.state);
+    showToast("M房发牌参数已保存。");
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+elements.dealExperimentReset.addEventListener("click", async () => {
+  if (!window.confirm("确定清除全部 M房发牌参数吗？")) return;
+  try {
+    const payload = await api("/api/admin/deal-profile/reset", { method: "POST", body: "{}" });
+    renderState(payload.state);
+    showToast("M房发牌参数已清除。即将恢复随机发牌。");
   } catch (error) {
     showToast(error.message);
   }

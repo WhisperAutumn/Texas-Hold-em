@@ -10,7 +10,10 @@
     <header class="admin-topbar">
       <a class="brand" href="/" aria-label="返回牌桌"><span class="brand-mark">R</span><span>RIVER ROOM</span></a>
       <div class="topbar-meta"><span class="status-dot"></span><span id="connection-status">连接中</span><span class="divider"></span><span>SERVER CLIENT</span></div>
-      <button class="text-button" id="logout-button" type="button">退出</button>
+      <div class="topbar-actions">
+        <button class="lab-button" id="deal-experiment-toggle" type="button" aria-label="M房设置" title="M房设置">M</button>
+        <button class="text-button" id="logout-button" type="button">退出</button>
+      </div>
     </header>
 
     <main class="admin-shell" id="admin-shell" hidden>
@@ -85,6 +88,24 @@
           </table>
         </div>
         <p class="section-note">密码仅以加密哈希形式保存在服务器，本页不会显示密码。</p>
+      </section>
+
+      <section class="admin-section deal-experiment-section" id="deal-experiment-panel" hidden>
+        <div class="section-heading">
+          <div><span class="section-kicker">M ROOM</span><h2>M房发牌参数</h2></div>
+          <span class="pending-badge" id="deal-experiment-status">未启用</span>
+        </div>
+        <form id="deal-experiment-form" class="deal-experiment-form">
+          <label>目标账号<select id="deal-experiment-account" required><option value="">暂无账号</option></select></label>
+          <label>大牌概率（%）<input id="strong-chance" type="number" min="0" max="100" step="1" value="0" required /></label>
+          <label>小牌概率（%）<input id="weak-chance" type="number" min="0" max="100" step="1" value="0" required /></label>
+          <button class="primary-button" id="deal-experiment-save" type="submit">保存参数</button>
+        </form>
+        <div class="deal-profile-list" id="deal-profile-list"></div>
+        <div class="deal-experiment-footer">
+          <p class="section-note">两项之和不能超过 100%，剩余概率保持随机。参数仅作用于 M房，并在服务重启后清除；该房输赢照常计入正式 Token。</p>
+          <button class="text-button danger" id="deal-experiment-reset" type="button">清除全部参数</button>
+        </div>
       </section>
     </main>
 

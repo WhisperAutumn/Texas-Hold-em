@@ -9,6 +9,8 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "riverroom-admin";
 const MAX_SEATS = 5;
 const TABLE_IDLE_TIMEOUT = 12000;
 const ACTION_TIMEOUT_MS = 18000;
+const M_ROOM_ID = "m-room";
+const M_ROOM_NAME = "M房";
 const BOT_NAMES = ["Nova", "Milo", "Iris", "Theo", "Jade"];
 const SUITS = ["S", "H", "D", "C"];
 const RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"];
@@ -85,7 +87,7 @@ function loadOrCreateAuthSecret() {
 const accounts = loadAccounts();
 const authSecret = loadOrCreateAuthSecret();
 const adminSessions = new Set();
-function createGame() {
+function createGame(experimentalDeal = false) {
   return {
     players: [],
     board: [],
@@ -103,12 +105,14 @@ function createGame() {
     nextHandTimer: null,
     turnTimer: null,
     version: 0,
-    botTarget: 0
+    botTarget: 0,
+    experimentalDeal
   };
 }
 
 const rooms = new Map();
 const invitations = new Map();
+const dealProfiles = new Map();
 let game = null;
 
 function withGame(target, callback) {
@@ -121,18 +125,21 @@ function withGame(target, callback) {
   }
 }
 
-function createRoomRecord(name, ownerAccountId, password = null) {
+function createRoomRecord(name, ownerAccountId, password = null, options = {}) {
   const room = {
-    id: crypto.randomUUID(),
+    id: options.id || crypto.randomUUID(),
     name,
     ownerAccountId,
     password,
+    experimentalDeal: Boolean(options.experimentalDeal),
     createdAt: new Date().toISOString(),
-    game: createGame()
+    game: createGame(Boolean(options.experimentalDeal))
   };
   rooms.set(room.id, room);
   return room;
 }
+
+createRoomRecord(M_ROOM_NAME, null, null, { id: M_ROOM_ID, experimentalDeal: true });
 
 function bumpVersion() {
   game.version += 1;
@@ -158,6 +165,47 @@ function shuffle(cards) {
 
 function draw() {
   return game.deck.pop();
+}
+
+function holeCardStrength(left, right) {
+  const high = Math.max(rankValue(left.rank), rankValue(right.rank));
+  const low = Math.min(rankValue(left.rank), rankValue(right.rank));
+  if (high === low) return 200 + high * 10;
+  let score = high * 6 + low * 2;
+  if (left.suit === right.suit) score += 8;
+  const gap = high - low;
+  if (gap === 1) score += 6;
+  else if (gap === 2) score += 2;
+  else if (gap >= 5) score -= 8;
+  if (high >= 11 && low >= 10) score += 12;
+  return score;
+}
+
+function drawHoleCards(player) {
+  const profile = game.experimentalDeal && player.accountId
+    ? dealProfiles.get(player.accountId)
+    : null;
+  const roll = Math.random() * 100;
+  const mode = profile && roll < profile.strongChance
+    ? "strong"
+    : profile && roll < profile.strongChance + profile.weakChance
+      ? "weak"
+      : "random";
+  if (mode === "random" || game.deck.length < 2) return [draw(), draw()];
+
+  let selected = null;
+  for (let leftIndex = 0; leftIndex < game.deck.length - 1; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < game.deck.length; rightIndex += 1) {
+      const score = holeCardStrength(game.deck[leftIndex], game.deck[rightIndex]);
+      if (!selected || (mode === "strong" ? score > selected.score : score < selected.score)) {
+        selected = { leftIndex, rightIndex, score };
+      }
+    }
+  }
+  const cards = [game.deck[selected.leftIndex], game.deck[selected.rightIndex]];
+  game.deck.splice(selected.rightIndex, 1);
+  game.deck.splice(selected.leftIndex, 1);
+  return cards;
 }
 
 function cardLabel(card) {
@@ -602,7 +650,7 @@ function startHand() {
     player.inHand = player.isBot || player.connected;
     player.folded = false;
     player.allIn = false;
-    player.cards = player.inHand ? [draw(), draw()] : [];
+    player.cards = player.inHand ? drawHoleCards(player) : [];
     player.bet = 0;
     player.totalBet = 0;
     player.actedAtBet = -1;
@@ -687,7 +735,13 @@ function maintenanceAllRooms() {
     const hasHumans = room.game.players.some((player) => !player.isBot && !player.leftRoom);
     if (!room.game.handActive && !hasHumans) {
       withGame(room.game, clearTimers);
-      rooms.delete(room.id);
+      if (room.experimentalDeal) {
+        room.ownerAccountId = null;
+        room.game.players = [];
+        room.game.botTarget = 0;
+      } else {
+        rooms.delete(room.id);
+      }
     }
   }
 }
@@ -857,8 +911,10 @@ function publicRoom(room, accountId) {
   return {
     id: room.id,
     name: room.name,
+    experimentalDeal: room.experimentalDeal,
+    requiresExperimentConsent: room.experimentalDeal,
     ownerAccountId: room.ownerAccountId,
-    ownerName: accounts.get(room.ownerAccountId)?.displayName || "未知",
+    ownerName: accounts.get(room.ownerAccountId)?.displayName || "待入座",
     hasPassword: Boolean(room.password),
     invited,
     humanCount: humans.length,
@@ -1103,6 +1159,10 @@ async function handleCreateRoom(req, res, body) {
     json(res, 400, { ok: false, error: "房间名称至少需要 2 个字符。" });
     return;
   }
+  if (name.toLocaleLowerCase() === M_ROOM_NAME.toLocaleLowerCase()) {
+    json(res, 409, { ok: false, error: "M房由服务器统一管理，请直接从大厅加入。" });
+    return;
+  }
   if (password.length > 40) {
     json(res, 400, { ok: false, error: "房间密码不能超过 40 位。" });
     return;
@@ -1125,6 +1185,10 @@ async function handleJoinRoom(req, res, body) {
     json(res, 404, { ok: false, error: "房间不存在或已经关闭。" });
     return;
   }
+  if (room.experimentalDeal && body?.experimentConsent !== true) {
+    json(res, 400, { ok: false, error: "加入 M房前必须确认实验发牌规则及正式 Token 结算说明。" });
+    return;
+  }
   const invited = invitations.get(account.id)?.has(room.id) || false;
   if (!invited && !(await roomPasswordMatches(body?.password, room))) {
     json(res, 403, { ok: false, error: "房间密码错误。" });
@@ -1135,6 +1199,7 @@ async function handleJoinRoom(req, res, body) {
     json(res, 409, { ok: false, error: "房间已经坐满。" });
     return;
   }
+  if (room.experimentalDeal && !room.ownerAccountId) room.ownerAccountId = account.id;
   invitations.get(account.id)?.delete(room.id);
   json(res, 200, { ok: true, state: withGame(room.game, () => stateFor(player.sid, room, account)) });
 }
@@ -1166,10 +1231,11 @@ function handleLeaveRoom(req, res) {
     }
     const nextOwner = game.players.find((candidate) => !candidate.isBot && !candidate.leftRoom);
     if (room.ownerAccountId === account.id && nextOwner) room.ownerAccountId = nextOwner.accountId;
-    if (!game.handActive && !nextOwner) {
+    if (!game.handActive && !nextOwner && !room.experimentalDeal) {
       clearTimers();
       rooms.delete(room.id);
     }
+    if (!nextOwner && room.experimentalDeal) room.ownerAccountId = null;
     emitStateVersion();
   });
   json(res, 200, { ok: true, state: lobbyState(account) });
@@ -1282,6 +1348,18 @@ function adminState() {
         createdAt: account.createdAt
       };
     }),
+    dealExperiment: {
+      roomId: M_ROOM_ID,
+      roomName: M_ROOM_NAME,
+      active: dealProfiles.size > 0,
+      profiles: [...dealProfiles.entries()].map(([accountId, profile]) => ({
+        accountId,
+        username: accounts.get(accountId)?.username || "",
+        displayName: accounts.get(accountId)?.displayName || "",
+        strongChance: profile.strongChance,
+        weakChance: profile.weakChance
+      }))
+    },
     table: {
       phase: `${roomList.length} 个房间`,
       pot: roomList.reduce((total, room) => total + room.game.pot, 0),
@@ -1402,6 +1480,33 @@ function handleAdminAccountGrant(req, res, body) {
   json(res, 200, { ok: true, state: adminState() });
 }
 
+function handleAdminDealProfile(req, res, body) {
+  if (!requireAdmin(req, res)) return;
+  const accountId = String(body?.accountId || "");
+  const account = accounts.get(accountId);
+  const strongChance = parsePositiveInteger(body?.strongChance, 0, 100);
+  const weakChance = parsePositiveInteger(body?.weakChance, 0, 100);
+  if (!account) {
+    json(res, 404, { ok: false, error: "指定账号不存在。" });
+    return;
+  }
+  if (strongChance === null || weakChance === null || strongChance + weakChance > 100) {
+    json(res, 400, { ok: false, error: "大牌概率与小牌概率必须是整数，且总和不能超过 100%。" });
+    return;
+  }
+  if (strongChance === 0 && weakChance === 0) dealProfiles.delete(accountId);
+  else dealProfiles.set(accountId, { strongChance, weakChance });
+  console.log(`[M-room] ${account.username}: strong=${strongChance}% weak=${weakChance}%`);
+  json(res, 200, { ok: true, state: adminState() });
+}
+
+function handleAdminDealProfileReset(req, res) {
+  if (!requireAdmin(req, res)) return;
+  dealProfiles.clear();
+  console.log("[M-room] all deal profiles cleared");
+  json(res, 200, { ok: true, state: adminState() });
+}
+
 function handleAdminLogout(req, res) {
   adminSessions.delete(getAdminSession(req));
   setAdminCookie(res, "", 0);
@@ -1491,6 +1596,16 @@ function routeRequest(req, res) {
 
   if (req.method === "POST" && pathname === "/api/admin/grant") {
     handleJsonRoute(req, res, (body) => handleAdminGrant(req, res, body));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/admin/deal-profile") {
+    handleJsonRoute(req, res, (body) => handleAdminDealProfile(req, res, body));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/admin/deal-profile/reset") {
+    handleAdminDealProfileReset(req, res);
     return;
   }
 

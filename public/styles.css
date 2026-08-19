@@ -212,6 +212,7 @@ button {
 .room-list { display: grid; margin-top: 4px; }
 .room-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: center; min-height: 110px; padding: 20px 0; border-bottom: 1px solid rgba(205, 226, 212, 0.12); }
 .room-item.invited { border-left: 2px solid #e5b75e; padding-left: 16px; }
+.room-item.experiment-room { border-left: 2px solid #b77b78; padding-left: 16px; }
 .room-item h3 { margin: 5px 0 7px; font-size: 17px; }
 .room-item p, .room-item-side span { margin: 0; color: #819d92; font-size: 11px; }
 .room-access { color: #e1b65f; font-family: Consolas, monospace; font-size: 9px; }
@@ -225,6 +226,9 @@ button {
 .join-dialog { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 20px; background: rgba(4, 16, 18, 0.88); }
 .join-dialog-panel { display: grid; gap: 11px; width: min(100%, 360px); padding: 26px; border: 1px solid rgba(205, 226, 212, 0.22); border-radius: 6px; background: #143135; }
 .join-dialog-panel h2 { margin: 4px 0 10px; font-size: 21px; }
+.dialog-copy { margin: 0 0 8px; color: #b8cac1; font-size: 12px; line-height: 1.65; }
+.join-dialog-panel .consent-check { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 9px; padding: 11px 0; color: #dbe7dc; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 12px; line-height: 1.5; }
+.join-dialog-panel .consent-check input { width: 16px; height: 16px; margin: 1px 0 0; padding: 0; accent-color: #e5b75e; }
 .dialog-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
 
 .rules-list {

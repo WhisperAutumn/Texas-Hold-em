@@ -14,6 +14,10 @@ const elements = {
   joinRoomTitle: document.querySelector("#join-room-title"),
   joinRoomPassword: document.querySelector("#join-room-password"),
   cancelJoinButton: document.querySelector("#cancel-join-button"),
+  experimentDialog: document.querySelector("#experiment-dialog"),
+  experimentForm: document.querySelector("#experiment-form"),
+  experimentConsent: document.querySelector("#experiment-consent"),
+  cancelExperimentButton: document.querySelector("#cancel-experiment-button"),
   loginScreen: document.querySelector("#login-screen"),
   loginForm: document.querySelector("#login-form"),
   usernameInput: document.querySelector("#username-input"),
@@ -240,8 +244,8 @@ function renderLobby(state) {
   elements.roomCount.textContent = `${state.rooms.length} 个房间`;
   elements.roomList.innerHTML = state.rooms.map((room) => {
     const invited = state.invitations.includes(room.id);
-    const access = invited ? "已邀请" : room.hasPassword ? "密码" : "公开";
-    return `<article class="room-item ${invited ? "invited" : ""}">
+    const access = room.experimentalDeal ? "实验" : invited ? "已邀请" : room.hasPassword ? "密码" : "公开";
+    return `<article class="room-item ${invited ? "invited" : ""} ${room.experimentalDeal ? "experiment-room" : ""}">
       <div class="room-item-main"><span class="room-access">${access}</span><h3>${escapeHtml(room.name)}</h3><p>房主 ${escapeHtml(room.ownerName)} · ${room.humanCount} 真人 · ${room.botCount} AI</p></div>
       <div class="room-item-side"><span>${escapeHtml(room.phase)}</span><button class="compact-button" type="button" data-join-room="${room.id}">${room.humanCount + room.botCount >= room.maxSeats && room.handActive ? "已满" : "加入"}</button></div>
     </article>`;
@@ -397,11 +401,13 @@ elements.createRoomForm.addEventListener("submit", async (event) => {
   }
 });
 
-async function joinRoom(roomId, password = "") {
-  const payload = await api("/api/rooms/join", { method: "POST", body: JSON.stringify({ roomId, password }) });
+async function joinRoom(roomId, password = "", experimentConsent = false) {
+  const payload = await api("/api/rooms/join", { method: "POST", body: JSON.stringify({ roomId, password, experimentConsent }) });
   pendingRoomId = null;
   elements.joinDialog.hidden = true;
+  elements.experimentDialog.hidden = true;
   elements.joinRoomForm.reset();
+  elements.experimentForm.reset();
   renderState(payload.state);
   showToast(`已加入 ${payload.state.room.name}。`);
 }
@@ -411,6 +417,12 @@ elements.roomList.addEventListener("click", async (event) => {
   if (!button || button.disabled) return;
   const room = latestState.rooms.find((candidate) => candidate.id === button.dataset.joinRoom);
   if (!room) return;
+  if (room.requiresExperimentConsent) {
+    pendingRoomId = room.id;
+    elements.experimentDialog.hidden = false;
+    elements.experimentConsent.focus();
+    return;
+  }
   if (room.hasPassword && !room.invited) {
     pendingRoomId = room.id;
     elements.joinRoomTitle.textContent = `加入 ${room.name}`;
@@ -438,6 +450,22 @@ elements.cancelJoinButton.addEventListener("click", () => {
   pendingRoomId = null;
   elements.joinDialog.hidden = true;
   elements.joinRoomForm.reset();
+});
+
+elements.experimentForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!elements.experimentConsent.checked) return;
+  try {
+    await joinRoom(pendingRoomId, "", true);
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+elements.cancelExperimentButton.addEventListener("click", () => {
+  pendingRoomId = null;
+  elements.experimentDialog.hidden = true;
+  elements.experimentForm.reset();
 });
 
 elements.leaveRoomButton.addEventListener("click", async () => {
