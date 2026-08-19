@@ -307,6 +307,12 @@ button {
 .lobby-topbar { display: flex; align-items: center; justify-content: space-between; min-height: 66px; padding: 0 32px; border-bottom: 1px solid rgba(205, 226, 212, 0.14); background: #0b1b1e; }
 .lobby-account { display: flex; align-items: center; gap: 14px; color: #a9bdb3; font-size: 12px; }
 .lobby-account strong { color: #f3c66f; font-family: Consolas, monospace; }
+
+.tier-text.tier-stone { color: #b6c0bc; }
+.tier-text.tier-green { color: #57d397; }
+.tier-text.tier-blue { color: #6cb8ff; }
+.tier-text.tier-gold { color: #f3c66f; }
+.tier-text.tier-crimson { color: #ff7187; }
 .lobby-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 44px; width: min(1120px, calc(100% - 56px)); margin: 0 auto; padding: 46px 0 70px; }
 .lobby-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding-bottom: 24px; border-bottom: 1px solid rgba(205, 226, 212, 0.14); }
 .lobby-heading h1 { margin: 6px 0 0; font-family: Georgia, "Microsoft YaHei", serif; font-size: 38px; font-weight: 400; }
@@ -527,8 +533,16 @@ button {
   justify-items: center;
   gap: 5px;
   width: 150px;
+  --tier-color: #a9c0b1;
+  --tier-border: rgba(226, 239, 225, 0.2);
   transform: translate(-50%, -50%);
 }
+
+.seat.tier-stone { --tier-color: #b6c0bc; --tier-border: rgba(182, 192, 188, 0.56); }
+.seat.tier-green { --tier-color: #57d397; --tier-border: rgba(87, 211, 151, 0.58); }
+.seat.tier-blue { --tier-color: #6cb8ff; --tier-border: rgba(108, 184, 255, 0.62); }
+.seat.tier-gold { --tier-color: #f3c66f; --tier-border: rgba(243, 198, 111, 0.66); }
+.seat.tier-crimson { --tier-color: #ff7187; --tier-border: rgba(255, 113, 135, 0.7); }
 
 .seat.me-seat { left: 50%; top: 82%; }
 .seat.opponent-0 { left: 24%; top: 15%; }
@@ -548,7 +562,7 @@ button {
   gap: 7px;
   min-width: 128px;
   padding: 5px 8px 5px 5px;
-  border: 1px solid rgba(226, 239, 225, 0.2);
+  border: 1px solid var(--tier-border);
   border-radius: 4px;
   background: #08241f;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.22);
@@ -593,7 +607,7 @@ button {
 
 .seat-stack {
   margin-top: 2px;
-  color: #a9c0b1;
+  color: var(--tier-color);
   font-family: Consolas, "Microsoft YaHei", monospace;
   font-size: 9px;
 }

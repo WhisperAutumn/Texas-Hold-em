@@ -57,6 +57,15 @@ function saveTableSettings() {
 }
 
 const tableSettings = loadTableSettings();
+
+function rulesForRoom(experimentalDeal = false) {
+  return {
+    ...tableSettings,
+    // M room has no table cap, but every player remains limited by their own stack.
+    maximumBet: experimentalDeal ? null : tableSettings.maximumBet
+  };
+}
+
 function loadAccounts() {
   try {
     const saved = JSON.parse(fs.readFileSync(accountsFile, "utf8"));
@@ -97,7 +106,7 @@ function createGame(experimentalDeal = false) {
     currentIndex: -1,
     street: 0,
     minRaise: tableSettings.minimumRaise,
-    rules: { ...tableSettings },
+    rules: rulesForRoom(experimentalDeal),
     currentBet: 0,
     handActive: false,
     phase: "Waiting for players",
@@ -396,10 +405,17 @@ function stateFor(viewerSid, room, account) {
       canAct: Boolean(viewer && game.handActive && current && current.id === viewerId && !viewer.folded && !viewer.allIn),
       toCall: viewer && viewer.inHand ? Math.max(0, game.currentBet - viewer.bet) : 0,
       minRaiseTo: game.currentBet === 0 ? game.rules.minimumBet : game.currentBet + game.minRaise,
-      maxRaiseTo: viewer ? Math.min(viewer.stack + viewer.bet, game.rules.maximumBet) : 0,
+      maxRaiseTo: viewer ? maximumRaiseTo(viewer) : 0,
       canManageRoom: room?.ownerAccountId === account?.id
     }
   };
+}
+
+function maximumRaiseTo(player) {
+  const stackMaximum = player.stack + player.bet;
+  return game.rules.maximumBet === null
+    ? stackMaximum
+    : Math.min(stackMaximum, game.rules.maximumBet);
 }
 
 function emitStateVersion() {
@@ -514,7 +530,7 @@ function handleAction(player, action, raiseTo) {
   } else if (action === "raise") {
     const requested = Number(raiseTo);
     const minimum = game.currentBet === 0 ? game.rules.minimumBet : game.currentBet + game.minRaise;
-    const maximum = Math.min(player.bet + player.stack, game.rules.maximumBet);
+    const maximum = maximumRaiseTo(player);
     if (!Number.isFinite(requested) || requested < minimum || requested > maximum) {
       return false;
     }
@@ -542,7 +558,7 @@ function botAct(player) {
   if (!game.handActive || game.players[game.currentIndex]?.id !== player.id) return;
   const toCall = Math.max(0, game.currentBet - player.bet);
   const minimumRaiseTo = game.currentBet === 0 ? game.rules.minimumBet : game.currentBet + game.minRaise;
-  const canRaise = Math.min(player.stack + player.bet, game.rules.maximumBet) >= minimumRaiseTo;
+  const canRaise = maximumRaiseTo(player) >= minimumRaiseTo;
   const roll = Math.random();
 
   if (toCall > 0 && roll < 0.18) {
@@ -552,7 +568,7 @@ function botAct(player) {
   if (canRaise && roll > 0.72) {
     const spread = Math.max(game.minRaise, Math.min(game.rules.bigBlind * 4, Math.floor(player.stack / 3)));
     const minimum = game.currentBet === 0 ? game.rules.minimumBet : game.currentBet + game.minRaise;
-    const target = Math.min(Math.min(player.stack + player.bet, game.rules.maximumBet), minimum + Math.floor(Math.random() * Math.max(1, spread)));
+    const target = Math.min(maximumRaiseTo(player), minimum + Math.floor(Math.random() * Math.max(1, spread)));
     handleAction(player, "raise", target);
     return;
   }
@@ -606,7 +622,7 @@ function advanceTurn() {
 
 function startHand() {
   clearTimers();
-  game.rules = { ...tableSettings };
+  game.rules = rulesForRoom(game.experimentalDeal);
   game.players = game.players.filter((player) => player.isBot || (player.connected && !player.leftRoom));
   game.players.forEach((player) => {
     player.inHand = false;
@@ -1422,7 +1438,7 @@ function handleAdminSettings(req, res, body) {
   }
   Object.assign(tableSettings, result.settings);
   rooms.forEach((room) => withGame(room.game, () => {
-    if (!game.handActive) game.rules = { ...tableSettings };
+    if (!game.handActive) game.rules = rulesForRoom(room.experimentalDeal);
     addLog("Admin updated table rules. New rules begin next hand.");
     emitStateVersion();
   }));

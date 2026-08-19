@@ -81,6 +81,14 @@ let pendingRoomId = null;
 const suitGlyphs = { S: "&spades;", H: "&hearts;", D: "&diams;", C: "&clubs;" };
 const avatarColors = ["#5f7d7f", "#9a7554", "#697e54", "#795d87", "#4c7287"];
 
+function tokenTier(tokens) {
+  if (tokens >= 100000) return { id: "crimson", label: "至尊" };
+  if (tokens >= 20000) return { id: "gold", label: "大师" };
+  if (tokens >= 5000) return { id: "blue", label: "高手" };
+  if (tokens >= 1000) return { id: "green", label: "进阶" };
+  return { id: "stone", label: "新手" };
+}
+
 function applySidebarState(state) {
   elements.gameLayout.classList.toggle("left-collapsed", state.left);
   elements.gameLayout.classList.toggle("right-collapsed", state.right);
@@ -256,7 +264,9 @@ function renderSeats(state) {
     const isCurrent = player.id === state.currentPlayerId;
     const isMe = player.id === me?.id;
     const positionClass = isMe ? "me-seat" : `opponent-${opponentIndex++}`;
-    seat.className = `seat ${positionClass} ${isCurrent ? "active" : ""} ${player.folded ? "folded" : ""}`;
+    const tier = tokenTier(player.stack);
+    seat.className = `seat tier-${tier.id} ${positionClass} ${isCurrent ? "active" : ""} ${player.folded ? "folded" : ""}`;
+    seat.title = `Token 等级：${tier.label}`;
     seat.style.setProperty("--avatar", avatarColors[index % avatarColors.length]);
 
     const initials = player.name.slice(0, 2).toUpperCase();
@@ -324,6 +334,7 @@ function renderLobby(state) {
   elements.lobbyScreen.hidden = false;
   elements.lobbyAccountName.textContent = state.account.displayName;
   elements.lobbyAccountTokens.textContent = `${formatChips(state.account.tokens)} Token`;
+  elements.lobbyAccountTokens.className = `tier-text tier-${tokenTier(state.account.tokens).id}`;
   elements.roomCount.textContent = `${state.rooms.length} 个房间`;
   elements.roomList.innerHTML = state.rooms.map((room) => {
     const invited = state.invitations.includes(room.id);
@@ -371,7 +382,9 @@ function renderTable(state) {
   elements.blindLevel.textContent = `${formatChips(state.smallBlind)} / ${formatChips(state.bigBlind)}`;
   elements.rulesBlinds.textContent = elements.blindLevel.textContent;
   elements.rulesBuyin.textContent = formatChips(state.startingTokens);
-  elements.rulesBetRange.textContent = `${formatChips(state.minimumBet)} - ${formatChips(state.maximumBet)}`;
+  elements.rulesBetRange.textContent = state.maximumBet === null
+    ? `${formatChips(state.minimumBet)} - 不限`
+    : `${formatChips(state.minimumBet)} - ${formatChips(state.maximumBet)}`;
   elements.rulesMinRaise.textContent = formatChips(state.minimumRaise);
   renderSeats(state);
   renderControls(state);
