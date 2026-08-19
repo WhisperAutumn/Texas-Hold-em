@@ -119,7 +119,21 @@ function resetSidebarLayout() {
 }
 
 function formatChips(value) {
-  return new Intl.NumberFormat("zh-CN").format(value || 0);
+  const amount = Math.max(0, Number(value) || 0);
+  if (amount < 1000) return new Intl.NumberFormat("zh-CN").format(amount);
+
+  const units = [[1_000_000_000, "B"], [1_000_000, "M"], [1_000, "k"]];
+  let [scale, suffix] = units.find(([unit]) => amount >= unit);
+  let normalized = amount / scale;
+  if (normalized >= 999.995 && scale < 1_000_000_000) {
+    const next = units[units.findIndex(([unit]) => unit === scale) - 1];
+    if (next) {
+      [scale, suffix] = next;
+      normalized = amount / scale;
+    }
+  }
+  const digits = normalized >= 100 ? 0 : normalized >= 10 ? 1 : 2;
+  return `${normalized.toFixed(digits).replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "")}${suffix}`;
 }
 
 function escapeHtml(value) {
