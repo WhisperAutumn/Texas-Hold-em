@@ -47,6 +47,7 @@ const elements = {
   streetLabel: document.querySelector("#street-label"),
   pot: document.querySelector("#pot"),
   board: document.querySelector("#board"),
+  handInsight: document.querySelector("#hand-insight"),
   seatRing: document.querySelector("#seat-ring"),
   handHistory: document.querySelector("#hand-history"),
   playerCount: document.querySelector("#player-count"),
@@ -188,13 +189,96 @@ function localizeHistoryEntry(entry) {
   return entry;
 }
 
-function cardHtml(card, hidden = false) {
+const handTypeNames = ["高牌", "一对", "两对", "三条", "顺子", "同花", "葫芦", "四条", "同花顺"];
+const suitNames = { S: "♠", H: "♥", D: "♦", C: "♣" };
+const rankNames = { T: "10", J: "J", Q: "Q", K: "K", A: "A" };
+
+function cardKey(card) {
+  return `${card.rank}${card.suit}`;
+}
+
+function cardText(card) {
+  return `${rankNames[card.rank] || card.rank}${suitNames[card.suit] || card.suit}`;
+}
+
+function cardRankValue(rank) {
+  return ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"].indexOf(rank) + 2;
+}
+
+function compareHandScores(left, right) {
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const difference = (left[index] || 0) - (right[index] || 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function evaluateFiveCards(cards) {
+  const values = cards.map((card) => cardRankValue(card.rank)).sort((a, b) => b - a);
+  const counts = new Map();
+  values.forEach((value) => counts.set(value, (counts.get(value) || 0) + 1));
+  const groups = [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0]);
+  const flush = cards.every((card) => card.suit === cards[0].suit);
+  const unique = [...new Set(values)].sort((a, b) => b - a);
+  let straightHigh = 0;
+  if (unique.length === 5) {
+    if (unique[0] - unique[4] === 4) straightHigh = unique[0];
+    if (unique.join(",") === "14,5,4,3,2") straightHigh = 5;
+  }
+  if (flush && straightHigh) return [8, straightHigh];
+  if (groups[0][1] === 4) return [7, groups[0][0], groups[1][0]];
+  if (groups[0][1] === 3 && groups[1][1] === 2) return [6, groups[0][0], groups[1][0]];
+  if (flush) return [5, ...values];
+  if (straightHigh) return [4, straightHigh];
+  if (groups[0][1] === 3) return [3, groups[0][0], ...groups.slice(1).map((group) => group[0]).sort((a, b) => b - a)];
+  if (groups[0][1] === 2 && groups[1][1] === 2) {
+    return [2, Math.max(groups[0][0], groups[1][0]), Math.min(groups[0][0], groups[1][0]), groups[2][0]];
+  }
+  if (groups[0][1] === 2) return [1, groups[0][0], ...groups.slice(1).map((group) => group[0]).sort((a, b) => b - a)];
+  return [0, ...values];
+}
+
+function bestVisibleHand(cards) {
+  let best = null;
+  for (let a = 0; a < cards.length - 4; a += 1) {
+    for (let b = a + 1; b < cards.length - 3; b += 1) {
+      for (let c = b + 1; c < cards.length - 2; c += 1) {
+        for (let d = c + 1; d < cards.length - 1; d += 1) {
+          for (let e = d + 1; e < cards.length; e += 1) {
+            const selected = [cards[a], cards[b], cards[c], cards[d], cards[e]];
+            const score = evaluateFiveCards(selected);
+            if (!best || compareHandScores(score, best.score) > 0) best = { score, cards: selected };
+          }
+        }
+      }
+    }
+  }
+  return best;
+}
+
+function handInsightFor(state) {
+  const player = state.players.find((candidate) => candidate.id === me?.id);
+  const holeCards = player?.cards || [];
+  const visibleCards = [...holeCards, ...state.board];
+  if (!holeCards.length) return { text: "等待你的底牌", keys: new Set() };
+  if (visibleCards.length < 5) {
+    return { text: `等待公共牌（已有 ${visibleCards.length} 张可用牌）`, keys: new Set() };
+  }
+  const best = bestVisibleHand(visibleCards);
+  const keys = new Set(best.cards.map(cardKey));
+  return {
+    text: `你当前能组成：${handTypeNames[best.score[0]]} · 使用 ${best.cards.map(cardText).join(" ")}`,
+    keys
+  };
+}
+
+function cardHtml(card, hidden = false, highlighted = false) {
   if (hidden) return '<span class="card card-back" aria-label="暗牌"></span>';
   if (!card) return "";
   const red = card.suit === "H" || card.suit === "D";
   const suit = suitGlyphs[card.suit];
   return `
-    <span class="card ${red ? "red" : ""}" aria-label="${card.rank}${card.suit}">
+    <span class="card ${red ? "red" : ""} ${highlighted ? "hand-highlight" : ""}" data-card-key="${cardKey(card)}" aria-label="${card.rank}${card.suit}">
       <span>${card.rank}</span>
       <span class="suit-large">${suit}</span>
       <span class="rank-bottom">${card.rank}</span>
@@ -284,8 +368,9 @@ function renderSeats(state) {
     seat.style.setProperty("--avatar", avatarColors[index % avatarColors.length]);
 
     const initials = player.name.slice(0, 2).toUpperCase();
+    const handKeys = isMe ? handInsightFor(state).keys : new Set();
     const cards = player.cards?.length
-      ? player.cards.map((card) => cardHtml(card)).join("")
+      ? player.cards.map((card) => cardHtml(card, false, handKeys.has(cardKey(card)))).join("")
       : (player.inHand ? `${cardHtml(null, true)}${cardHtml(null, true)}` : "");
     const actionBet = player.bet > 0 ? `<span class="action-bet">${formatChips(player.bet)}</span>` : "";
     const dealer = player.seat === state.dealerIndex ? '<span class="dealer-chip">D</span>' : "";
@@ -390,7 +475,9 @@ function renderTable(state) {
   renderRoomManagement(state);
   elements.streetLabel.textContent = state.streetLabel;
   elements.pot.innerHTML = `底池 <strong>${formatChips(state.pot)}</strong>`;
-  elements.board.innerHTML = state.board.map((card) => cardHtml(card)).join("");
+  const handInsight = handInsightFor(state);
+  elements.board.innerHTML = state.board.map((card) => cardHtml(card, false, handInsight.keys.has(cardKey(card)))).join("");
+  elements.handInsight.textContent = handInsight.text;
   elements.handHistory.innerHTML = state.log.map((entry) => `<div class="history-item">${escapeHtml(localizeHistoryEntry(entry))}</div>`).join("");
   elements.playerCount.textContent = `${state.players.filter((player) => !player.isBot).length} / 5`;
   elements.blindLevel.textContent = `${formatChips(state.smallBlind)} / ${formatChips(state.bigBlind)}`;

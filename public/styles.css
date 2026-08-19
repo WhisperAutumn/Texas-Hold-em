@@ -471,6 +471,19 @@ button {
   min-height: 56px;
 }
 
+.hand-insight {
+  min-height: 14px;
+  max-width: 100%;
+  overflow: hidden;
+  color: #f4c871;
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .card {
   display: grid;
   grid-template-rows: auto 1fr auto;
@@ -490,6 +503,12 @@ button {
 
 .card.red {
   color: #bd3c3d;
+}
+
+.card.hand-highlight {
+  border-color: #f4c871;
+  box-shadow: 0 0 0 3px rgba(244, 200, 113, 0.28), 0 5px 12px rgba(0, 0, 0, 0.3);
+  transform: translateY(-4px);
 }
 
 .card .rank-bottom {
