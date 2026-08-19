@@ -7,7 +7,6 @@ const os = require("os");
 const PORT = Number(process.env.PORT || 3000);
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "riverroom-admin";
 const MAX_SEATS = 5;
-const MIN_SEATS = 4;
 const TABLE_IDLE_TIMEOUT = 12000;
 const ACTION_TIMEOUT_MS = 18000;
 const BOT_NAMES = ["Nova", "Milo", "Iris", "Theo", "Jade"];
@@ -86,24 +85,54 @@ function loadOrCreateAuthSecret() {
 const accounts = loadAccounts();
 const authSecret = loadOrCreateAuthSecret();
 const adminSessions = new Set();
-const game = {
-  players: [],
-  board: [],
-  deck: [],
-  pot: 0,
-  dealerIndex: 0,
-  currentIndex: -1,
-  street: 0,
-  minRaise: tableSettings.minimumRaise,
-  rules: { ...tableSettings },
-  currentBet: 0,
-  handActive: false,
-  phase: "Waiting for players",
-  log: ["Table created. Waiting for a player to sit down."],
-  nextHandTimer: null,
-  turnTimer: null,
-  version: 0
-};
+function createGame() {
+  return {
+    players: [],
+    board: [],
+    deck: [],
+    pot: 0,
+    dealerIndex: 0,
+    currentIndex: -1,
+    street: 0,
+    minRaise: tableSettings.minimumRaise,
+    rules: { ...tableSettings },
+    currentBet: 0,
+    handActive: false,
+    phase: "Waiting for players",
+    log: ["Room created. Waiting for players."],
+    nextHandTimer: null,
+    turnTimer: null,
+    version: 0,
+    botTarget: 0
+  };
+}
+
+const rooms = new Map();
+const invitations = new Map();
+let game = null;
+
+function withGame(target, callback) {
+  const previous = game;
+  game = target;
+  try {
+    return callback();
+  } finally {
+    game = previous;
+  }
+}
+
+function createRoomRecord(name, ownerAccountId, password = null) {
+  const room = {
+    id: crypto.randomUUID(),
+    name,
+    ownerAccountId,
+    password,
+    createdAt: new Date().toISOString(),
+    game: createGame()
+  };
+  rooms.set(room.id, room);
+  return room;
+}
 
 function bumpVersion() {
   game.version += 1;
@@ -238,14 +267,15 @@ function everyEligiblePlayerMatched() {
 }
 
 function ensureBotSeats() {
-  const humanCount = game.players.filter((player) => !player.isBot).length;
-  const targetSeats = Math.min(MAX_SEATS, Math.max(MIN_SEATS, humanCount));
-  while (game.players.length > targetSeats) {
+  const humanCount = game.players.filter((player) => !player.isBot && !player.leftRoom).length;
+  const targetBots = Math.min(game.botTarget, Math.max(0, MAX_SEATS - humanCount));
+  game.botTarget = targetBots;
+  while (game.players.filter((player) => player.isBot).length > targetBots) {
     const index = game.players.findIndex((player) => player.isBot && !player.inHand);
     if (index === -1) break;
     game.players.splice(index, 1);
   }
-  while (game.players.length < targetSeats) {
+  while (game.players.filter((player) => player.isBot).length < targetBots && game.players.length < MAX_SEATS) {
     const name = BOT_NAMES.find((candidate) => !game.players.some((player) => player.name === candidate));
     if (!name) break;
     game.players.push({
@@ -286,12 +316,17 @@ function publicPlayer(player, viewerId, now) {
   };
 }
 
-function stateFor(viewerSid) {
+function stateFor(viewerSid, room, account) {
   const now = Date.now();
   const current = game.players[game.currentIndex];
   const viewer = findPlayerBySid(viewerSid);
   const viewerId = viewer?.id;
   return {
+    view: "table",
+    authenticated: true,
+    account: publicAccount(account),
+    room: publicRoom(room, account?.id),
+    users: serverUsers(account),
     version: game.version,
     phase: game.phase,
     street: game.street,
@@ -313,7 +348,8 @@ function stateFor(viewerSid) {
       canAct: Boolean(viewer && game.handActive && current && current.id === viewerId && !viewer.folded && !viewer.allIn),
       toCall: viewer && viewer.inHand ? Math.max(0, game.currentBet - viewer.bet) : 0,
       minRaiseTo: game.currentBet === 0 ? game.rules.minimumBet : game.currentBet + game.minRaise,
-      maxRaiseTo: viewer ? Math.min(viewer.stack + viewer.bet, game.rules.maximumBet) : 0
+      maxRaiseTo: viewer ? Math.min(viewer.stack + viewer.bet, game.rules.maximumBet) : 0,
+      canManageRoom: room?.ownerAccountId === account?.id
     }
   };
 }
@@ -487,13 +523,15 @@ function announceTurn() {
   if (!player || !game.handActive) return;
   addLog(`${player.name}'s turn.`);
   emitStateVersion();
+  const targetGame = game;
+  const runInGame = (callback) => () => withGame(targetGame, callback);
 
   if (player.isBot) {
-    game.turnTimer = setTimeout(() => botAct(player), 850 + Math.floor(Math.random() * 800));
+    game.turnTimer = setTimeout(runInGame(() => botAct(player)), 850 + Math.floor(Math.random() * 800));
   } else if (!player.connected) {
-    game.turnTimer = setTimeout(() => timeoutAction(player), 250);
+    game.turnTimer = setTimeout(runInGame(() => timeoutAction(player)), 250);
   } else {
-    game.turnTimer = setTimeout(() => timeoutAction(player), ACTION_TIMEOUT_MS);
+    game.turnTimer = setTimeout(runInGame(() => timeoutAction(player)), ACTION_TIMEOUT_MS);
   }
 }
 
@@ -521,7 +559,7 @@ function advanceTurn() {
 function startHand() {
   clearTimers();
   game.rules = { ...tableSettings };
-  game.players = game.players.filter((player) => player.isBot || player.connected);
+  game.players = game.players.filter((player) => player.isBot || (player.connected && !player.leftRoom));
   game.players.forEach((player) => {
     player.inHand = false;
     player.folded = false;
@@ -603,9 +641,12 @@ function startHand() {
 
 function scheduleNextHand() {
   clearTimers();
+  const targetGame = game;
   game.nextHandTimer = setTimeout(() => {
-    game.nextHandTimer = null;
-    startHand();
+    withGame(targetGame, () => {
+      game.nextHandTimer = null;
+      startHand();
+    });
   }, 4200);
 }
 
@@ -638,6 +679,17 @@ function maintenanceTick() {
   }
 
   if (changed) emitStateVersion();
+}
+
+function maintenanceAllRooms() {
+  for (const room of [...rooms.values()]) {
+    withGame(room.game, maintenanceTick);
+    const hasHumans = room.game.players.some((player) => !player.isBot && !player.leftRoom);
+    if (!room.game.handActive && !hasHumans) {
+      withGame(room.game, clearTimers);
+      rooms.delete(room.id);
+    }
+  }
 }
 
 function parseCookies(cookieHeader = "") {
@@ -767,61 +819,88 @@ function syncAccountBalances() {
   if (changed) saveAccounts();
 }
 
-function getLoginPayload(req, body) {
-  const sid = getSid(req) || crypto.randomUUID();
-  const name = sanitizeName(body?.name);
-  return { sid, name };
+function findMembershipByAccountId(accountId) {
+  for (const room of rooms.values()) {
+    const player = room.game.players.find((candidate) => !candidate.isBot && !candidate.leftRoom && candidate.accountId === accountId);
+    if (player) return { room, player };
+  }
+  return null;
 }
 
-function createOrUpdatePlayer(req, res, body) {
-  const { sid, name } = getLoginPayload(req, body);
-  const existing = findPlayerBySid(sid);
-  if (existing) {
-    existing.name = name;
-    touchPlayer(existing);
-    setSidCookie(res, sid);
-    return existing;
+function findMembershipBySid(sid) {
+  for (const room of rooms.values()) {
+    const player = room.game.players.find((candidate) => !candidate.isBot && !candidate.leftRoom && candidate.sid === sid);
+    if (player) return { room, player };
   }
+  return null;
+}
 
-  const replacementBotIndex = game.players.findIndex((player) => player.isBot && !player.inHand);
-  if (game.players.length >= MAX_SEATS && replacementBotIndex === -1) {
-    return null;
-  }
+function publicAccount(account) {
+  if (!account) return null;
+  return { id: account.id, username: account.username, displayName: account.displayName, tokens: account.tokens };
+}
 
-  const player = {
-    id: crypto.randomUUID(),
-    sid,
-    name,
-    stack: tableSettings.startingTokens,
-    seat: 0,
-    isBot: false,
-    connected: true,
-    lastSeen: Date.now(),
-    inHand: false,
-    folded: false,
-    allIn: false,
-    cards: [],
-    bet: 0,
-    totalBet: 0,
-    actedAtBet: -1
+function serverUsers(account) {
+  return [...accounts.values()]
+    .filter((candidate) => candidate.id !== account.id)
+    .map((candidate) => ({
+      id: candidate.id,
+      username: candidate.username,
+      displayName: candidate.displayName,
+      online: Boolean(findMembershipByAccountId(candidate.id))
+    }));
+}
+
+function publicRoom(room, accountId) {
+  const humans = room.game.players.filter((player) => !player.isBot && !player.leftRoom);
+  const invited = invitations.get(accountId)?.has(room.id) || false;
+  return {
+    id: room.id,
+    name: room.name,
+    ownerAccountId: room.ownerAccountId,
+    ownerName: accounts.get(room.ownerAccountId)?.displayName || "未知",
+    hasPassword: Boolean(room.password),
+    invited,
+    humanCount: humans.length,
+    botCount: room.game.players.filter((player) => player.isBot).length,
+    botTarget: room.game.botTarget,
+    maxSeats: MAX_SEATS,
+    phase: room.game.phase,
+    pot: room.game.pot,
+    handActive: room.game.handActive
   };
-
-  if (replacementBotIndex !== -1) {
-    game.players.splice(replacementBotIndex, 1, player);
-  } else {
-    game.players.push(player);
-  }
-  normalizeSeats();
-  touchPlayer(player);
-  setSidCookie(res, sid);
-  addLog(`${player.name} joins the table.`);
-  emitStateVersion();
-  if (!game.handActive) startHand();
-  else ensureBotSeats();
-  return player;
 }
 
-function createOrUpdateAccountPlayer(req, res, account) {
+function lobbyState(account) {
+  const invitedRooms = invitations.get(account.id) || new Set();
+  return {
+    view: "lobby",
+    authenticated: true,
+    account: publicAccount(account),
+    rooms: [...rooms.values()].map((room) => publicRoom(room, account.id)),
+    invitations: [...invitedRooms].filter((roomId) => rooms.has(roomId)),
+    users: serverUsers(account)
+  };
+}
+
+function unauthenticatedState() {
+  return { view: "auth", authenticated: false, account: null, rooms: [], invitations: [], users: [] };
+}
+
+function stateForAccount(account, req, res) {
+  if (!account) return unauthenticatedState();
+  const membership = findMembershipByAccountId(account.id);
+  if (!membership) return lobbyState(account);
+  return withGame(membership.room.game, () => {
+    membership.player.sid = getSid(req) || membership.player.sid || crypto.randomUUID();
+    touchPlayer(membership.player);
+    setSidCookie(res, membership.player.sid);
+    return stateFor(membership.player.sid, membership.room, account);
+  });
+}
+
+function createOrUpdateAccountPlayer(room, req, res, account) {
+  return withGame(room.game, () => {
   const sid = getSid(req) || crypto.randomUUID();
   const existing = findPlayerByAccountId(account.id);
   if (existing) {
@@ -864,6 +943,7 @@ function createOrUpdateAccountPlayer(req, res, account) {
   if (!game.handActive) startHand();
   else ensureBotSeats();
   return player;
+  });
 }
 
 function normalizeUsername(input) {
@@ -927,12 +1007,10 @@ async function handleAccountRegister(req, res, body) {
   };
   accounts.set(account.id, account);
   saveAccounts();
-  const player = createOrUpdateAccountPlayer(req, res, account);
-  if (!player) {
-    json(res, 409, { ok: false, error: "账号已创建，但牌桌当前已满，请稍后登录。" });
-    return;
-  }
-  json(res, 200, { ok: true, state: stateFor(player.sid) });
+  const sid = getSid(req) || crypto.randomUUID();
+  setSidCookie(res, sid);
+  setAuthCookie(res, account.id);
+  json(res, 200, { ok: true, state: lobbyState(account) });
 }
 
 async function handleAccountLogin(req, res, body) {
@@ -945,67 +1023,201 @@ async function handleAccountLogin(req, res, body) {
   }
   account.lastLoginAt = new Date().toISOString();
   saveAccounts();
-  const player = createOrUpdateAccountPlayer(req, res, account);
-  if (!player) {
-    json(res, 409, { ok: false, error: "牌桌当前已满，请稍后再试。" });
-    return;
-  }
-  json(res, 200, { ok: true, state: stateFor(player.sid) });
-}
-
-function restoreAccountSession(req, res) {
-  const account = getAccountFromRequest(req);
-  if (!account) return null;
-  const existing = findPlayerByAccountId(account.id);
-  if (existing) {
-    existing.sid = getSid(req) || crypto.randomUUID();
-    touchPlayer(existing);
-    setSidCookie(res, existing.sid);
-    return existing;
-  }
-  return createOrUpdateAccountPlayer(req, res, account);
+  const sid = getSid(req) || crypto.randomUUID();
+  const membership = findMembershipByAccountId(account.id);
+  if (membership) membership.player.sid = sid;
+  setSidCookie(res, sid);
+  setAuthCookie(res, account.id);
+  json(res, 200, { ok: true, state: stateForAccount(account, req, res) });
 }
 
 function handleAccountLogout(req, res) {
-  const sid = getSid(req);
-  const player = sid ? findPlayerBySid(sid) : null;
-  if (player) {
-    player.connected = false;
-    player.lastSeen = 0;
-    player.sid = "";
-    if (!game.handActive) {
-      game.players = game.players.filter((candidate) => candidate !== player);
-      ensureBotSeats();
-    }
-    emitStateVersion();
+  const account = getAccountFromRequest(req);
+  const membership = account ? findMembershipByAccountId(account.id) : findMembershipBySid(getSid(req));
+  if (membership) {
+    withGame(membership.room.game, () => {
+      membership.player.connected = false;
+      membership.player.lastSeen = 0;
+      membership.player.sid = "";
+      emitStateVersion();
+    });
   }
   clearAuthCookies(res);
   json(res, 200, { ok: true });
 }
 
-function handleLogin(req, res, body) {
-  const player = createOrUpdatePlayer(req, res, body);
-  if (!player) {
-    json(res, 409, { ok: false, error: "This table is full right now." });
-    return;
-  }
-  json(res, 200, { ok: true, state: stateFor(player.sid) });
-}
-
 function handleActionRequest(req, res, body) {
-  const sid = getSid(req);
-  const player = sid ? findPlayerBySid(sid) : null;
-  if (!player) {
+  const account = getAccountFromRequest(req);
+  const membership = account ? findMembershipByAccountId(account.id) : null;
+  if (!membership) {
     json(res, 401, { ok: false, error: "Please log in first." });
     return;
   }
-  touchPlayer(player);
-  const accepted = handleAction(player, body?.type, body?.raiseTo);
-  if (!accepted) {
-    json(res, 400, { ok: false, error: "Action not accepted right now.", state: stateFor(sid) });
+  withGame(membership.room.game, () => {
+    touchPlayer(membership.player);
+    const accepted = handleAction(membership.player, body?.type, body?.raiseTo);
+    const state = stateFor(membership.player.sid, membership.room, account);
+    if (!accepted) json(res, 400, { ok: false, error: "Action not accepted right now.", state });
+    else json(res, 200, { ok: true, state });
+  });
+}
+
+function requirePlayerAccount(req, res) {
+  const account = getAccountFromRequest(req);
+  if (account) return account;
+  json(res, 401, { ok: false, error: "请先登录账号。" });
+  return null;
+}
+
+function sanitizeRoomName(input) {
+  return String(input || "")
+    .replace(/[<>\u0000-\u001f]/g, "")
+    .trim()
+    .slice(0, 24);
+}
+
+async function createRoomPassword(password) {
+  if (!password) return null;
+  const result = await hashPassword(password);
+  return { salt: result.salt, passwordHash: result.passwordHash };
+}
+
+async function roomPasswordMatches(password, room) {
+  if (!room.password) return true;
+  const result = await hashPassword(String(password || ""), room.password.salt);
+  const supplied = Buffer.from(result.passwordHash, "hex");
+  const expected = Buffer.from(room.password.passwordHash, "hex");
+  return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+}
+
+async function handleCreateRoom(req, res, body) {
+  const account = requirePlayerAccount(req, res);
+  if (!account) return;
+  if (findMembershipByAccountId(account.id)) {
+    json(res, 409, { ok: false, error: "请先退出当前房间。" });
     return;
   }
-  json(res, 200, { ok: true, state: stateFor(sid) });
+  const name = sanitizeRoomName(body?.name);
+  const password = String(body?.password || "");
+  if (name.length < 2) {
+    json(res, 400, { ok: false, error: "房间名称至少需要 2 个字符。" });
+    return;
+  }
+  if (password.length > 40) {
+    json(res, 400, { ok: false, error: "房间密码不能超过 40 位。" });
+    return;
+  }
+  const room = createRoomRecord(name, account.id, await createRoomPassword(password));
+  const player = createOrUpdateAccountPlayer(room, req, res, account);
+  json(res, 200, { ok: true, state: withGame(room.game, () => stateFor(player.sid, room, account)) });
+}
+
+async function handleJoinRoom(req, res, body) {
+  const account = requirePlayerAccount(req, res);
+  if (!account) return;
+  const current = findMembershipByAccountId(account.id);
+  if (current) {
+    json(res, 409, { ok: false, error: "请先退出当前房间。" });
+    return;
+  }
+  const room = rooms.get(String(body?.roomId || ""));
+  if (!room) {
+    json(res, 404, { ok: false, error: "房间不存在或已经关闭。" });
+    return;
+  }
+  const invited = invitations.get(account.id)?.has(room.id) || false;
+  if (!invited && !(await roomPasswordMatches(body?.password, room))) {
+    json(res, 403, { ok: false, error: "房间密码错误。" });
+    return;
+  }
+  const player = createOrUpdateAccountPlayer(room, req, res, account);
+  if (!player) {
+    json(res, 409, { ok: false, error: "房间已经坐满。" });
+    return;
+  }
+  invitations.get(account.id)?.delete(room.id);
+  json(res, 200, { ok: true, state: withGame(room.game, () => stateFor(player.sid, room, account)) });
+}
+
+function handleLeaveRoom(req, res) {
+  const account = requirePlayerAccount(req, res);
+  if (!account) return;
+  const membership = findMembershipByAccountId(account.id);
+  if (!membership) {
+    json(res, 200, { ok: true, state: lobbyState(account) });
+    return;
+  }
+  const { room, player } = membership;
+  if (room.game.handActive) {
+    json(res, 409, { ok: false, error: "本手牌结束后才能退出房间。" });
+    return;
+  }
+  withGame(room.game, () => {
+    player.leftRoom = true;
+    player.connected = false;
+    player.lastSeen = 0;
+    player.sid = "";
+    if (game.handActive) {
+      if (game.players[game.currentIndex]?.id === player.id) timeoutAction(player);
+    } else {
+      syncAccountBalances();
+      game.players = game.players.filter((candidate) => candidate !== player);
+      ensureBotSeats();
+    }
+    const nextOwner = game.players.find((candidate) => !candidate.isBot && !candidate.leftRoom);
+    if (room.ownerAccountId === account.id && nextOwner) room.ownerAccountId = nextOwner.accountId;
+    if (!game.handActive && !nextOwner) {
+      clearTimers();
+      rooms.delete(room.id);
+    }
+    emitStateVersion();
+  });
+  json(res, 200, { ok: true, state: lobbyState(account) });
+}
+
+function handleRoomBots(req, res, body) {
+  const account = requirePlayerAccount(req, res);
+  if (!account) return;
+  const membership = findMembershipByAccountId(account.id);
+  if (!membership || membership.room.ownerAccountId !== account.id) {
+    json(res, 403, { ok: false, error: "只有房主可以管理机器人。" });
+    return;
+  }
+  const delta = Number(body?.delta);
+  if (![1, -1].includes(delta)) {
+    json(res, 400, { ok: false, error: "无效的机器人操作。" });
+    return;
+  }
+  const { room, player } = membership;
+  withGame(room.game, () => {
+    const humanCount = game.players.filter((candidate) => !candidate.isBot && !candidate.leftRoom).length;
+    game.botTarget = Math.max(0, Math.min(MAX_SEATS - humanCount, game.botTarget + delta));
+    if (!game.handActive) {
+      ensureBotSeats();
+      if (game.players.length >= 2) startHand();
+    }
+    emitStateVersion();
+    json(res, 200, { ok: true, state: stateFor(player.sid, room, account) });
+  });
+}
+
+function handleRoomInvite(req, res, body) {
+  const account = requirePlayerAccount(req, res);
+  if (!account) return;
+  const membership = findMembershipByAccountId(account.id);
+  if (!membership || membership.room.ownerAccountId !== account.id) {
+    json(res, 403, { ok: false, error: "只有房主可以邀请玩家。" });
+    return;
+  }
+  const invitedAccount = accounts.get(String(body?.accountId || ""));
+  if (!invitedAccount || invitedAccount.id === account.id) {
+    json(res, 404, { ok: false, error: "指定账号不存在。" });
+    return;
+  }
+  if (!invitations.has(invitedAccount.id)) invitations.set(invitedAccount.id, new Set());
+  invitations.get(invitedAccount.id).add(membership.room.id);
+  withGame(membership.room.game, () => addLog(`${account.displayName} invited ${invitedAccount.displayName}.`));
+  json(res, 200, { ok: true, state: stateForAccount(account, req, res) });
 }
 
 function getAdminSession(req) {
@@ -1028,7 +1240,21 @@ function passwordMatches(input) {
 
 function adminState() {
   const now = Date.now();
-  const takesEffectNextHand = Object.keys(DEFAULT_SETTINGS).some((key) => tableSettings[key] !== game.rules[key]);
+  const roomList = [...rooms.values()];
+  const takesEffectNextHand = roomList.some((room) => Object.keys(DEFAULT_SETTINGS).some((key) => tableSettings[key] !== room.game.rules[key]));
+  const tablePlayers = roomList.flatMap((room) => room.game.players.map((player) => ({
+    id: player.id,
+    name: player.name,
+    roomName: room.name,
+    stack: player.stack,
+    bet: player.bet,
+    isBot: player.isBot,
+    connected: player.isBot || now - (player.lastSeen || 0) <= TABLE_IDLE_TIMEOUT,
+    inHand: player.inHand,
+    folded: player.folded,
+    allIn: player.allIn,
+    current: room.game.players[room.game.currentIndex]?.id === player.id
+  })));
   const lanAddresses = Object.values(os.networkInterfaces())
     .flat()
     .filter((address) => address && address.family === "IPv4" && !address.internal)
@@ -1041,38 +1267,29 @@ function adminState() {
       lanPlayerUrls: [...new Set(lanAddresses)]
     },
     pendingSettings: { ...tableSettings },
-    activeRules: { ...game.rules },
+    activeRules: { ...tableSettings },
     takesEffectNextHand,
+    rooms: roomList.map((room) => publicRoom(room)),
     accounts: [...accounts.values()].map((account) => {
-      const player = findPlayerByAccountId(account.id);
+      const membership = findMembershipByAccountId(account.id);
       return {
         id: account.id,
         username: account.username,
         displayName: account.displayName,
         tokens: account.tokens,
-        online: Boolean(player?.connected),
+        online: Boolean(membership?.player.connected),
         lastLoginAt: account.lastLoginAt,
         createdAt: account.createdAt
       };
     }),
     table: {
-      phase: game.phase,
-      pot: game.pot,
-      handActive: game.handActive,
-      currentPlayerId: game.players[game.currentIndex]?.id || null,
-      players: game.players.map((player) => ({
-        id: player.id,
-        name: player.name,
-        stack: player.stack,
-        bet: player.bet,
-        isBot: player.isBot,
-        connected: player.isBot || now - (player.lastSeen || 0) <= TABLE_IDLE_TIMEOUT,
-        inHand: player.inHand,
-        folded: player.folded,
-        allIn: player.allIn
-      }))
+      phase: `${roomList.length} 个房间`,
+      pot: roomList.reduce((total, room) => total + room.game.pot, 0),
+      handActive: roomList.some((room) => room.game.handActive),
+      currentPlayerId: null,
+      players: tablePlayers
     },
-    log: game.log
+    log: roomList.flatMap((room) => room.game.log.map((entry) => `[${room.name}] ${entry}`)).slice(0, 20)
   };
 }
 
@@ -1126,10 +1343,12 @@ function handleAdminSettings(req, res, body) {
     return;
   }
   Object.assign(tableSettings, result.settings);
-  if (!game.handActive) game.rules = { ...tableSettings };
+  rooms.forEach((room) => withGame(room.game, () => {
+    if (!game.handActive) game.rules = { ...tableSettings };
+    addLog("Admin updated table rules. New rules begin next hand.");
+    emitStateVersion();
+  }));
   saveTableSettings();
-  addLog("Admin updated table rules. New rules begin next hand.");
-  emitStateVersion();
   json(res, 200, { ok: true, state: adminState() });
 }
 
@@ -1140,16 +1359,18 @@ function handleAdminGrant(req, res, body) {
     json(res, 400, { ok: false, error: "Grant amount must be a positive whole number." });
     return;
   }
-  game.players.forEach((player) => {
-    player.stack = Math.min(Number.MAX_SAFE_INTEGER, player.stack + amount);
-    if (player.accountId) {
-      const account = accounts.get(player.accountId);
-      if (account) account.tokens = player.stack;
-    }
-  });
+  rooms.forEach((room) => withGame(room.game, () => {
+    game.players.forEach((player) => {
+      player.stack = Math.min(Number.MAX_SAFE_INTEGER, player.stack + amount);
+      if (player.accountId) {
+        const account = accounts.get(player.accountId);
+        if (account) account.tokens = player.stack;
+      }
+    });
+    addLog(`Admin grants ${amount} Token to every seated player.`);
+    emitStateVersion();
+  }));
   saveAccounts();
-  addLog(`Admin grants ${amount} Token to every seated player.`);
-  emitStateVersion();
   json(res, 200, { ok: true, state: adminState() });
 }
 
@@ -1167,13 +1388,17 @@ function handleAdminAccountGrant(req, res, body) {
     return;
   }
 
-  const player = findPlayerByAccountId(account.id);
-  const nextTokens = Math.min(Number.MAX_SAFE_INTEGER, (player ? player.stack : Number(account.tokens) || 0) + amount);
+  const membership = findMembershipByAccountId(account.id);
+  const nextTokens = Math.min(Number.MAX_SAFE_INTEGER, (membership ? membership.player.stack : Number(account.tokens) || 0) + amount);
   account.tokens = nextTokens;
-  if (player) player.stack = nextTokens;
+  if (membership) {
+    membership.player.stack = nextTokens;
+    withGame(membership.room.game, () => {
+      addLog(`Admin grants ${amount} Token to ${account.displayName}.`);
+      emitStateVersion();
+    });
+  }
   saveAccounts();
-  addLog(`Admin grants ${amount} Token to ${account.displayName}.`);
-  emitStateVersion();
   json(res, 200, { ok: true, state: adminState() });
 }
 
@@ -1217,21 +1442,9 @@ function routeRequest(req, res) {
   }
 
   if (req.method === "GET" && pathname === "/api/state") {
-    maintenanceTick();
-    let sid = getSid(req);
-    let viewer = sid ? findPlayerBySid(sid) : null;
-    if (!viewer) viewer = restoreAccountSession(req, res);
-    if (viewer) sid = viewer.sid;
-    if (sid) {
-      const current = findPlayerBySid(sid);
-      if (current) touchPlayer(current);
-    }
-    json(res, 200, { ok: true, state: stateFor(sid) });
-    return;
-  }
-
-  if (req.method === "POST" && pathname === "/api/login") {
-    handleJsonRoute(req, res, (body) => handleLogin(req, res, body));
+    maintenanceAllRooms();
+    const account = getAccountFromRequest(req);
+    json(res, 200, { ok: true, state: stateForAccount(account, req, res) });
     return;
   }
 
@@ -1281,6 +1494,31 @@ function routeRequest(req, res) {
     return;
   }
 
+  if (req.method === "POST" && pathname === "/api/rooms/create") {
+    handleJsonRoute(req, res, (body) => handleCreateRoom(req, res, body));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/rooms/join") {
+    handleJsonRoute(req, res, (body) => handleJoinRoom(req, res, body));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/rooms/leave") {
+    handleLeaveRoom(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/rooms/bots") {
+    handleJsonRoute(req, res, (body) => handleRoomBots(req, res, body));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/rooms/invite") {
+    handleJsonRoute(req, res, (body) => handleRoomInvite(req, res, body));
+    return;
+  }
+
   if (req.method === "POST" && pathname === "/api/admin/account-grant") {
     handleJsonRoute(req, res, (body) => handleAdminAccountGrant(req, res, body));
     return;
@@ -1327,4 +1565,4 @@ http.createServer((req, res) => {
   if (!process.env.ADMIN_PASSWORD) console.log("Admin password: riverroom-admin (set ADMIN_PASSWORD to change it)");
 });
 
-setInterval(maintenanceTick, 1000).unref();
+setInterval(maintenanceAllRooms, 1000).unref();

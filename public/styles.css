@@ -9,6 +9,8 @@
   box-sizing: border-box;
 }
 
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   min-width: 320px;
@@ -21,7 +23,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -185,6 +188,44 @@ button {
   font-size: 10px;
   line-height: 1.5;
 }
+
+.room-panel { display: grid; gap: 15px; margin-top: 22px; padding-top: 18px; border-top: 1px solid rgba(205, 226, 212, 0.14); }
+.room-bot-control { display: flex; align-items: center; justify-content: space-between; color: #9fb4ac; font-size: 11px; }
+.room-bot-control > div { display: flex; align-items: center; gap: 10px; }
+.step-button { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid rgba(229, 183, 94, 0.45); border-radius: 3px; background: transparent; color: #f3c66f; font-size: 18px; }
+.step-button:disabled { opacity: 0.35; cursor: default; }
+.invite-form { display: grid; gap: 8px; }
+.invite-form label, .create-room-panel label, .join-dialog-panel label { color: #8ea89d; font-family: Consolas, "Microsoft YaHei", monospace; font-size: 10px; }
+.invite-form select, .create-room-panel input, .join-dialog-panel input { width: 100%; min-width: 0; height: 40px; padding: 0 10px; border: 1px solid rgba(223, 234, 222, 0.22); border-radius: 3px; outline: none; background: #0c1a1d; color: #f0f4ee; }
+.compact-button, .leave-room-button { min-height: 36px; padding: 0 12px; border: 1px solid #e5b75e; border-radius: 3px; background: #e7ba62; color: #18251f; font-size: 11px; font-weight: 700; }
+.compact-button.secondary, .leave-room-button { border-color: rgba(223, 234, 222, 0.24); background: transparent; color: #b8cac0; }
+.compact-button:disabled { opacity: 0.4; cursor: default; }
+
+.lobby-screen { min-height: 100vh; background: #102429; }
+.lobby-topbar { display: flex; align-items: center; justify-content: space-between; min-height: 66px; padding: 0 32px; border-bottom: 1px solid rgba(205, 226, 212, 0.14); background: #0b1b1e; }
+.lobby-account { display: flex; align-items: center; gap: 14px; color: #a9bdb3; font-size: 12px; }
+.lobby-account strong { color: #f3c66f; font-family: Consolas, monospace; }
+.lobby-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 44px; width: min(1120px, calc(100% - 56px)); margin: 0 auto; padding: 46px 0 70px; }
+.lobby-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding-bottom: 24px; border-bottom: 1px solid rgba(205, 226, 212, 0.14); }
+.lobby-heading h1 { margin: 6px 0 0; font-family: Georgia, "Microsoft YaHei", serif; font-size: 38px; font-weight: 400; }
+.lobby-heading > span { color: #7e9b91; font-size: 11px; }
+.room-list { display: grid; margin-top: 4px; }
+.room-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: center; min-height: 110px; padding: 20px 0; border-bottom: 1px solid rgba(205, 226, 212, 0.12); }
+.room-item.invited { border-left: 2px solid #e5b75e; padding-left: 16px; }
+.room-item h3 { margin: 5px 0 7px; font-size: 17px; }
+.room-item p, .room-item-side span { margin: 0; color: #819d92; font-size: 11px; }
+.room-access { color: #e1b65f; font-family: Consolas, monospace; font-size: 9px; }
+.room-item-side { display: grid; justify-items: end; gap: 12px; }
+.empty-lobby { display: grid; gap: 8px; padding: 58px 0; color: #8da69b; }
+.empty-lobby strong { color: #dce7dd; font-size: 17px; }
+.create-room-panel { align-self: start; padding: 24px; border: 1px solid rgba(205, 226, 212, 0.18); border-radius: 6px; background: #143135; }
+.create-room-panel h2 { margin: 6px 0 22px; font-size: 20px; }
+.create-room-panel form { display: grid; gap: 11px; }
+.create-room-panel .enter-button { margin-top: 8px; }
+.join-dialog { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 20px; background: rgba(4, 16, 18, 0.88); }
+.join-dialog-panel { display: grid; gap: 11px; width: min(100%, 360px); padding: 26px; border: 1px solid rgba(205, 226, 212, 0.22); border-radius: 6px; background: #143135; }
+.join-dialog-panel h2 { margin: 4px 0 10px; font-size: 21px; }
+.dialog-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
 
 .rules-list {
   display: grid;
@@ -718,6 +759,13 @@ button {
     display: none;
   }
 
+  .right-panel { display: flex; order: 2; padding: 14px 0 20px; }
+  .right-panel .rules-list, .right-panel .status-card { display: none; }
+  .table-zone { order: 1; }
+
+  .lobby-layout { grid-template-columns: 1fr; width: min(100% - 32px, 680px); gap: 28px; padding-top: 30px; }
+  .create-room-panel { order: -1; }
+
   .poker-table {
     width: min(100%, 730px);
   }
@@ -745,6 +793,14 @@ button {
   .table-title {
     display: none;
   }
+
+  .lobby-topbar { padding: 0 14px; }
+  .lobby-account { gap: 8px; }
+  .lobby-account strong { display: none; }
+  .lobby-heading { align-items: start; }
+  .lobby-heading h1 { font-size: 32px; }
+  .room-item { grid-template-columns: 1fr; gap: 13px; }
+  .room-item-side { grid-template-columns: 1fr auto; align-items: center; justify-items: start; }
 
   .poker-table {
     width: 100%;

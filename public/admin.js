@@ -63,10 +63,11 @@ function renderPlayers(state) {
   const players = state.table.players;
   elements.playerCount.textContent = `${players.length} 人`;
   elements.playersBody.innerHTML = players.map((player) => {
-    const status = player.folded ? "已弃牌" : player.allIn ? "全下" : player.id === state.table.currentPlayerId ? "行动中" : player.connected ? "在线" : "离线";
+    const status = player.folded ? "已弃牌" : player.allIn ? "全下" : player.current ? "行动中" : player.connected ? "在线" : "离线";
     const statusClass = player.connected && !player.folded ? "active" : player.connected ? "" : "offline";
     return `<tr>
       <td>${player.name}</td>
+      <td>${player.roomName}</td>
       <td class="player-type">${player.isBot ? "AI" : "真人"}</td>
       <td class="player-state ${statusClass}">${status}</td>
       <td class="stack-value">${formatTokens(player.stack)}</td>

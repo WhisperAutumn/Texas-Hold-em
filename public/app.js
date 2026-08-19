@@ -1,4 +1,19 @@
 const elements = {
+  gameShell: document.querySelector("#game-shell"),
+  lobbyScreen: document.querySelector("#lobby-screen"),
+  lobbyAccountName: document.querySelector("#lobby-account-name"),
+  lobbyAccountTokens: document.querySelector("#lobby-account-tokens"),
+  lobbyLogoutButton: document.querySelector("#lobby-logout-button"),
+  roomCount: document.querySelector("#room-count"),
+  roomList: document.querySelector("#room-list"),
+  createRoomForm: document.querySelector("#create-room-form"),
+  roomNameInput: document.querySelector("#room-name-input"),
+  roomPasswordInput: document.querySelector("#room-password-input"),
+  joinDialog: document.querySelector("#join-dialog"),
+  joinRoomForm: document.querySelector("#join-room-form"),
+  joinRoomTitle: document.querySelector("#join-room-title"),
+  joinRoomPassword: document.querySelector("#join-room-password"),
+  cancelJoinButton: document.querySelector("#cancel-join-button"),
   loginScreen: document.querySelector("#login-screen"),
   loginForm: document.querySelector("#login-form"),
   usernameInput: document.querySelector("#username-input"),
@@ -9,6 +24,15 @@ const elements = {
   authSubmit: document.querySelector("#auth-submit"),
   authNote: document.querySelector("#auth-note"),
   playerLogoutButton: document.querySelector("#player-logout-button"),
+  currentRoomName: document.querySelector("#current-room-name"),
+  roomOwnerLabel: document.querySelector("#room-owner-label"),
+  roomBotControl: document.querySelector("#room-bot-control"),
+  botCount: document.querySelector("#bot-count"),
+  addBotButton: document.querySelector("#add-bot-button"),
+  removeBotButton: document.querySelector("#remove-bot-button"),
+  inviteForm: document.querySelector("#invite-form"),
+  inviteUser: document.querySelector("#invite-user"),
+  leaveRoomButton: document.querySelector("#leave-room-button"),
   connectionStatus: document.querySelector("#connection-status"),
   streetLabel: document.querySelector("#street-label"),
   pot: document.querySelector("#pot"),
@@ -42,12 +66,17 @@ let requestInFlight = false;
 let actionInFlight = false;
 let lastTurnPlayerId = null;
 let authMode = "login";
+let pendingRoomId = null;
 
 const suitGlyphs = { S: "&spades;", H: "&hearts;", D: "&diams;", C: "&clubs;" };
 const avatarColors = ["#5f7d7f", "#9a7554", "#697e54", "#795d87", "#4c7287"];
 
 function formatChips(value) {
   return new Intl.NumberFormat("zh-CN").format(value || 0);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
 }
 
 function cardHtml(card, hidden = false) {
@@ -202,14 +231,51 @@ function renderControls(state) {
   }
 }
 
-function renderState(state) {
+function renderLobby(state) {
+  me = null;
+  elements.gameShell.hidden = true;
+  elements.lobbyScreen.hidden = false;
+  elements.lobbyAccountName.textContent = state.account.displayName;
+  elements.lobbyAccountTokens.textContent = `${formatChips(state.account.tokens)} Token`;
+  elements.roomCount.textContent = `${state.rooms.length} 个房间`;
+  elements.roomList.innerHTML = state.rooms.map((room) => {
+    const invited = state.invitations.includes(room.id);
+    const access = invited ? "已邀请" : room.hasPassword ? "密码" : "公开";
+    return `<article class="room-item ${invited ? "invited" : ""}">
+      <div class="room-item-main"><span class="room-access">${access}</span><h3>${escapeHtml(room.name)}</h3><p>房主 ${escapeHtml(room.ownerName)} · ${room.humanCount} 真人 · ${room.botCount} AI</p></div>
+      <div class="room-item-side"><span>${escapeHtml(room.phase)}</span><button class="compact-button" type="button" data-join-room="${room.id}">${room.humanCount + room.botCount >= room.maxSeats && room.handActive ? "已满" : "加入"}</button></div>
+    </article>`;
+  }).join("") || '<div class="empty-lobby"><strong>暂时没有房间</strong><span>创建一个房间并邀请其他服务器用户。</span></div>';
+  state.rooms.forEach((room) => {
+    const button = elements.roomList.querySelector(`[data-join-room="${room.id}"]`);
+    if (button) button.disabled = room.humanCount + room.botCount >= room.maxSeats && room.handActive;
+  });
+}
+
+function renderRoomManagement(state) {
+  const owner = state.room.ownerAccountId === state.account.id;
+  elements.currentRoomName.textContent = state.room.name;
+  elements.roomOwnerLabel.textContent = owner ? "你是房主" : `房主 ${state.room.ownerName}`;
+  elements.roomBotControl.hidden = !owner;
+  elements.inviteForm.hidden = !owner;
+  elements.botCount.textContent = state.room.botTarget;
+  elements.removeBotButton.disabled = state.room.botTarget <= 0;
+  elements.addBotButton.disabled = state.room.humanCount + state.room.botTarget >= state.room.maxSeats;
+  const users = state.users || [];
+  elements.inviteUser.innerHTML = users.map((user) => `<option value="${user.id}">${escapeHtml(user.displayName)}（${escapeHtml(user.username)}）${user.online ? " · 已在房间" : ""}</option>`).join("");
+  elements.inviteUser.disabled = users.length === 0;
+  elements.inviteForm.querySelector("button").disabled = users.length === 0;
+}
+
+function renderTable(state) {
   const previousTurn = lastTurnPlayerId;
-  latestState = state;
   me = state.me;
   lastTurnPlayerId = state.currentPlayerId;
 
-  elements.loginScreen.classList.toggle("hidden", Boolean(me));
+  elements.gameShell.hidden = false;
+  elements.lobbyScreen.hidden = true;
   elements.playerLogoutButton.hidden = !me;
+  renderRoomManagement(state);
   elements.streetLabel.textContent = state.streetLabel;
   elements.pot.innerHTML = `底池 <strong>${formatChips(state.pot)}</strong>`;
   elements.board.innerHTML = state.board.map((card) => cardHtml(card)).join("");
@@ -224,6 +290,19 @@ function renderState(state) {
   renderControls(state);
 
   if (me && previousTurn !== me.id && state.currentPlayerId === me.id) playTurnTone();
+}
+
+function renderState(state) {
+  latestState = state;
+  elements.loginScreen.classList.toggle("hidden", state.authenticated);
+  if (!state.authenticated) {
+    me = null;
+    elements.gameShell.hidden = true;
+    elements.lobbyScreen.hidden = true;
+    return;
+  }
+  if (state.view === "lobby") renderLobby(state);
+  else renderTable(state);
 }
 
 async function refreshState() {
@@ -277,7 +356,7 @@ elements.loginForm.addEventListener("submit", async (event) => {
     elements.passwordInput.value = "";
     elements.passwordConfirmInput.value = "";
     renderState(payload.state);
-    showToast(`欢迎入座，${payload.state.me.name}。`);
+    showToast(`欢迎，${payload.state.account.displayName}。`);
   } catch (error) {
     showToast(error.message);
   } finally {
@@ -289,7 +368,7 @@ elements.authTabs.forEach((tab) => {
   tab.addEventListener("click", () => setAuthMode(tab.dataset.authMode));
 });
 
-elements.playerLogoutButton.addEventListener("click", async () => {
+async function logout() {
   try {
     await api("/api/account/logout", { method: "POST", body: "{}" });
     me = null;
@@ -298,6 +377,97 @@ elements.playerLogoutButton.addEventListener("click", async () => {
     setAuthMode("login");
     await refreshState();
     showToast("已退出登录。");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+elements.playerLogoutButton.addEventListener("click", logout);
+elements.lobbyLogoutButton.addEventListener("click", logout);
+
+elements.createRoomForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const payload = await api("/api/rooms/create", { method: "POST", body: JSON.stringify({ name: elements.roomNameInput.value, password: elements.roomPasswordInput.value }) });
+    elements.createRoomForm.reset();
+    renderState(payload.state);
+    showToast("房间已创建。");
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+async function joinRoom(roomId, password = "") {
+  const payload = await api("/api/rooms/join", { method: "POST", body: JSON.stringify({ roomId, password }) });
+  pendingRoomId = null;
+  elements.joinDialog.hidden = true;
+  elements.joinRoomForm.reset();
+  renderState(payload.state);
+  showToast(`已加入 ${payload.state.room.name}。`);
+}
+
+elements.roomList.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-join-room]");
+  if (!button || button.disabled) return;
+  const room = latestState.rooms.find((candidate) => candidate.id === button.dataset.joinRoom);
+  if (!room) return;
+  if (room.hasPassword && !room.invited) {
+    pendingRoomId = room.id;
+    elements.joinRoomTitle.textContent = `加入 ${room.name}`;
+    elements.joinDialog.hidden = false;
+    elements.joinRoomPassword.focus();
+    return;
+  }
+  try {
+    await joinRoom(room.id);
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+elements.joinRoomForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await joinRoom(pendingRoomId, elements.joinRoomPassword.value);
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+elements.cancelJoinButton.addEventListener("click", () => {
+  pendingRoomId = null;
+  elements.joinDialog.hidden = true;
+  elements.joinRoomForm.reset();
+});
+
+elements.leaveRoomButton.addEventListener("click", async () => {
+  try {
+    const payload = await api("/api/rooms/leave", { method: "POST", body: "{}" });
+    renderState(payload.state);
+    showToast("已退出房间。");
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+async function changeBots(delta) {
+  try {
+    const payload = await api("/api/rooms/bots", { method: "POST", body: JSON.stringify({ delta }) });
+    renderState(payload.state);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+elements.addBotButton.addEventListener("click", () => changeBots(1));
+elements.removeBotButton.addEventListener("click", () => changeBots(-1));
+
+elements.inviteForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const payload = await api("/api/rooms/invite", { method: "POST", body: JSON.stringify({ accountId: elements.inviteUser.value }) });
+    renderState(payload.state);
+    showToast("邀请已发送。");
   } catch (error) {
     showToast(error.message);
   }

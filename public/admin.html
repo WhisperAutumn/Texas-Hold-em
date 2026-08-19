@@ -56,7 +56,7 @@
             <label>每位玩家增加<input id="grant-amount" type="number" min="1" step="1" value="1000" required /></label>
             <button class="primary-button" type="submit">给全桌发放</button>
           </form>
-          <p class="section-note">会给当前牌桌上的真人和 AI 都增加余额；本手已经全下的玩家下一手才能使用。</p>
+          <p class="section-note">会给服务器所有房间内的真人和 AI 增加余额；本手已经全下的玩家下一手才能使用。</p>
           <form id="account-grant-form" class="grant-form account-grant-form">
             <label>指定账号<select id="grant-account" required><option value="">暂无账号</option></select></label>
             <label>增加 Token<input id="account-grant-amount" type="number" min="1" step="1" value="1000" required /></label>
@@ -70,7 +70,7 @@
         <div class="section-heading"><div><span class="section-kicker">LIVE TABLE</span><h2>当前玩家</h2></div><span id="player-count">0 人</span></div>
         <div class="players-table-wrap">
           <table>
-            <thead><tr><th>玩家</th><th>类型</th><th>状态</th><th>筹码</th><th>本轮下注</th></tr></thead>
+            <thead><tr><th>玩家</th><th>房间</th><th>类型</th><th>状态</th><th>筹码</th><th>本轮下注</th></tr></thead>
             <tbody id="players-body"></tbody>
           </table>
         </div>

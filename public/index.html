@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="app-shell">
+    <main class="app-shell" id="game-shell" hidden>
       <header class="topbar">
         <a class="brand" href="/" aria-label="River Room home">
           <span class="brand-mark">R</span>
@@ -15,7 +15,7 @@
         </a>
         <div class="table-title">
           <span class="online-dot"></span>
-          <span>NO LIMIT HOLD'EM</span>
+          <span id="current-room-name">NO LIMIT HOLD'EM</span>
           <span class="divider"></span>
           <span id="blind-level">25 / 50</span>
         </div>
@@ -67,6 +67,19 @@
             <span class="eyebrow">你的状态</span>
             <strong id="status-copy">登录后即可入座。</strong>
           </div>
+          <div class="room-panel">
+            <div class="panel-heading"><span>房间管理</span><span class="muted" id="room-owner-label"></span></div>
+            <div class="room-bot-control" id="room-bot-control" hidden>
+              <span>AI 机器人</span>
+              <div><button class="step-button" id="remove-bot-button" type="button" aria-label="删除机器人">−</button><strong id="bot-count">0</strong><button class="step-button" id="add-bot-button" type="button" aria-label="添加机器人">+</button></div>
+            </div>
+            <form class="invite-form" id="invite-form" hidden>
+              <label for="invite-user">邀请服务器用户</label>
+              <select id="invite-user"></select>
+              <button class="compact-button" type="submit">发送邀请</button>
+            </form>
+            <button class="leave-room-button" id="leave-room-button" type="button">退出房间</button>
+          </div>
         </aside>
       </section>
 
@@ -89,6 +102,40 @@
         </div>
       </section>
     </main>
+
+    <section class="lobby-screen" id="lobby-screen" hidden>
+      <header class="lobby-topbar">
+        <a class="brand" href="/" aria-label="River Room"><span class="brand-mark">R</span><span>RIVER ROOM</span></a>
+        <div class="lobby-account"><span id="lobby-account-name"></span><strong id="lobby-account-tokens"></strong><button class="logout-button" id="lobby-logout-button" type="button">退出登录</button></div>
+      </header>
+      <div class="lobby-layout">
+        <section class="room-directory">
+          <div class="lobby-heading"><div><p class="eyebrow">SERVER LOBBY</p><h1>选择房间</h1></div><span id="room-count">0 个房间</span></div>
+          <div class="room-list" id="room-list"></div>
+        </section>
+        <aside class="create-room-panel">
+          <p class="eyebrow">NEW ROOM</p>
+          <h2>开设房间</h2>
+          <form id="create-room-form">
+            <label for="room-name-input">房间名称</label>
+            <input id="room-name-input" maxlength="24" placeholder="例如：周末牌局" required />
+            <label for="room-password-input">房间密码（可选）</label>
+            <input id="room-password-input" type="password" maxlength="40" autocomplete="new-password" placeholder="留空则无需密码" />
+            <button class="enter-button" type="submit">创建并进入</button>
+          </form>
+        </aside>
+      </div>
+    </section>
+
+    <div class="join-dialog" id="join-dialog" hidden>
+      <form class="join-dialog-panel" id="join-room-form">
+        <p class="eyebrow">PRIVATE ROOM</p>
+        <h2 id="join-room-title">加入房间</h2>
+        <label for="join-room-password">房间密码</label>
+        <input id="join-room-password" type="password" maxlength="40" autocomplete="off" required />
+        <div class="dialog-actions"><button class="compact-button secondary" id="cancel-join-button" type="button">取消</button><button class="compact-button" type="submit">加入</button></div>
+      </form>
+    </div>
 
     <div class="login-screen" id="login-screen">
       <div class="login-card">
