@@ -26,11 +26,12 @@
         </div>
       </header>
 
-      <section class="game-layout">
+      <section class="game-layout" id="game-layout">
         <aside class="side-panel left-panel">
           <div class="panel-heading">
-            <span>牌局记录</span>
+            <span class="panel-heading-label">牌局记录</span>
             <span class="muted">LIVE</span>
+            <button class="panel-toggle" id="left-panel-toggle" type="button" aria-label="收起左侧栏" data-tooltip="收起左侧栏">‹</button>
           </div>
           <div class="hand-history" id="hand-history" aria-live="polite"></div>
           <div class="chat-placeholder">这里会实时显示发牌、下注和结算记录。</div>
@@ -53,7 +54,8 @@
 
         <aside class="side-panel right-panel">
           <div class="panel-heading">
-            <span>牌桌</span>
+            <button class="panel-toggle" id="right-panel-toggle" type="button" aria-label="收起右侧栏" data-tooltip="收起右侧栏">›</button>
+            <span class="panel-heading-label">牌桌</span>
             <span class="muted" id="player-count">0 / 5</span>
           </div>
           <div class="rules-list">

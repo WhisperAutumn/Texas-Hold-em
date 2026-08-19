@@ -133,6 +133,19 @@ button {
   gap: 24px;
   min-height: 0;
   padding: 18px 28px 8px;
+  transition: grid-template-columns 180ms ease;
+}
+
+.game-layout.left-collapsed {
+  grid-template-columns: 34px minmax(580px, 1fr) minmax(150px, 0.8fr);
+}
+
+.game-layout.right-collapsed {
+  grid-template-columns: minmax(150px, 0.8fr) minmax(580px, 1fr) 34px;
+}
+
+.game-layout.left-collapsed.right-collapsed {
+  grid-template-columns: 34px minmax(580px, 1fr) 34px;
 }
 
 .side-panel {
@@ -155,6 +168,71 @@ button {
   font-size: 10px;
   letter-spacing: 0;
   text-transform: uppercase;
+}
+
+.panel-heading-label {
+  min-width: 0;
+}
+
+.panel-toggle {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(205, 226, 212, 0.18);
+  border-radius: 3px;
+  background: transparent;
+  color: #a9c2b5;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.panel-toggle:hover {
+  border-color: rgba(229, 183, 94, 0.65);
+  color: #f3c66f;
+}
+
+.panel-toggle:hover::after {
+  position: absolute;
+  top: 30px;
+  z-index: 20;
+  padding: 5px 7px;
+  border-radius: 3px;
+  background: #07191c;
+  color: #eaf3ea;
+  content: attr(data-tooltip);
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.left-panel .panel-toggle:hover::after { left: 0; }
+.right-panel .panel-toggle:hover::after { right: 0; }
+
+.game-layout.left-collapsed .left-panel,
+.game-layout.right-collapsed .right-panel {
+  align-items: center;
+  padding-inline: 4px;
+}
+
+.game-layout.left-collapsed .left-panel .panel-heading,
+.game-layout.right-collapsed .right-panel .panel-heading {
+  justify-content: center;
+  width: 100%;
+}
+
+.game-layout.left-collapsed .left-panel .panel-heading > span,
+.game-layout.right-collapsed .right-panel .panel-heading > span {
+  display: none;
+}
+
+.game-layout.left-collapsed .left-panel .hand-history,
+.game-layout.left-collapsed .left-panel .chat-placeholder,
+.game-layout.right-collapsed .right-panel > :not(.panel-heading) {
+  display: none;
 }
 
 .muted,
@@ -764,6 +842,13 @@ button {
 
   .side-panel {
     display: none;
+  }
+
+  .game-layout,
+  .game-layout.left-collapsed,
+  .game-layout.right-collapsed,
+  .game-layout.left-collapsed.right-collapsed {
+    grid-template-columns: 1fr;
   }
 
   .right-panel { display: flex; order: 2; padding: 14px 0 20px; }

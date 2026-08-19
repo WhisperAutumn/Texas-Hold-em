@@ -4,6 +4,9 @@ const elements = {
   lobbyAccountName: document.querySelector("#lobby-account-name"),
   lobbyAccountTokens: document.querySelector("#lobby-account-tokens"),
   lobbyLogoutButton: document.querySelector("#lobby-logout-button"),
+  gameLayout: document.querySelector("#game-layout"),
+  leftPanelToggle: document.querySelector("#left-panel-toggle"),
+  rightPanelToggle: document.querySelector("#right-panel-toggle"),
   roomCount: document.querySelector("#room-count"),
   roomList: document.querySelector("#room-list"),
   createRoomForm: document.querySelector("#create-room-form"),
@@ -72,8 +75,42 @@ let lastTurnPlayerId = null;
 let authMode = "login";
 let pendingRoomId = null;
 
+const SIDEBAR_STORAGE_KEY = "river-room-sidebar-state";
+
 const suitGlyphs = { S: "&spades;", H: "&hearts;", D: "&diams;", C: "&clubs;" };
 const avatarColors = ["#5f7d7f", "#9a7554", "#697e54", "#795d87", "#4c7287"];
+
+function readSidebarState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SIDEBAR_STORAGE_KEY) || "{}");
+    return { left: saved.left === true, right: saved.right === true };
+  } catch {
+    return { left: false, right: false };
+  }
+}
+
+function applySidebarState(state) {
+  elements.gameLayout.classList.toggle("left-collapsed", state.left);
+  elements.gameLayout.classList.toggle("right-collapsed", state.right);
+  elements.leftPanelToggle.textContent = state.left ? "›" : "‹";
+  elements.rightPanelToggle.textContent = state.right ? "‹" : "›";
+  elements.leftPanelToggle.setAttribute("aria-label", state.left ? "展开左侧栏" : "收起左侧栏");
+  elements.rightPanelToggle.setAttribute("aria-label", state.right ? "展开右侧栏" : "收起右侧栏");
+  elements.leftPanelToggle.dataset.tooltip = state.left ? "展开左侧栏" : "收起左侧栏";
+  elements.rightPanelToggle.dataset.tooltip = state.right ? "展开右侧栏" : "收起右侧栏";
+}
+
+let sidebarState = readSidebarState();
+
+function toggleSidebar(side) {
+  sidebarState = { ...sidebarState, [side]: !sidebarState[side] };
+  applySidebarState(sidebarState);
+  try {
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, JSON.stringify(sidebarState));
+  } catch {
+    // Sidebar controls still work when storage is unavailable.
+  }
+}
 
 function formatChips(value) {
   return new Intl.NumberFormat("zh-CN").format(value || 0);
@@ -436,6 +473,8 @@ async function logout() {
 
 elements.playerLogoutButton.addEventListener("click", logout);
 elements.lobbyLogoutButton.addEventListener("click", logout);
+elements.leftPanelToggle.addEventListener("click", () => toggleSidebar("left"));
+elements.rightPanelToggle.addEventListener("click", () => toggleSidebar("right"));
 
 elements.createRoomForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -567,3 +606,4 @@ elements.soundButton.addEventListener("click", () => {
 
 refreshState();
 setInterval(refreshState, 900);
+applySidebarState(sidebarState);
