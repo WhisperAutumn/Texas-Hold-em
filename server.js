@@ -1186,7 +1186,7 @@ async function handleJoinRoom(req, res, body) {
     return;
   }
   if (room.experimentalDeal && body?.experimentConsent !== true) {
-    json(res, 400, { ok: false, error: "加入 M房前必须确认实验发牌规则及正式 Token 结算说明。" });
+    json(res, 400, { ok: false, error: "本房间为实验性高价值房间，慎入。请先勾选确认后再加入。" });
     return;
   }
   const invited = invitations.get(account.id)?.has(room.id) || false;
