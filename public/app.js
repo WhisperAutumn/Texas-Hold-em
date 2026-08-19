@@ -9,6 +9,7 @@ const elements = {
   rightPanelToggle: document.querySelector("#right-panel-toggle"),
   topLeftPanelToggle: document.querySelector("#top-left-panel-toggle"),
   topRightPanelToggle: document.querySelector("#top-right-panel-toggle"),
+  layoutResetButton: document.querySelector("#layout-reset-button"),
   roomCount: document.querySelector("#room-count"),
   roomList: document.querySelector("#room-list"),
   createRoomForm: document.querySelector("#create-room-form"),
@@ -77,19 +78,8 @@ let lastTurnPlayerId = null;
 let authMode = "login";
 let pendingRoomId = null;
 
-const SIDEBAR_STORAGE_KEY = "river-room-sidebar-state";
-
 const suitGlyphs = { S: "&spades;", H: "&hearts;", D: "&diams;", C: "&clubs;" };
 const avatarColors = ["#5f7d7f", "#9a7554", "#697e54", "#795d87", "#4c7287"];
-
-function readSidebarState() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(SIDEBAR_STORAGE_KEY) || "{}");
-    return { left: saved.left === true, right: saved.right === true };
-  } catch {
-    return { left: false, right: false };
-  }
-}
 
 function applySidebarState(state) {
   elements.gameLayout.classList.toggle("left-collapsed", state.left);
@@ -108,16 +98,16 @@ function applySidebarState(state) {
   });
 }
 
-let sidebarState = readSidebarState();
+let sidebarState = { left: false, right: false };
 
 function toggleSidebar(side) {
   sidebarState = { ...sidebarState, [side]: !sidebarState[side] };
   applySidebarState(sidebarState);
-  try {
-    localStorage.setItem(SIDEBAR_STORAGE_KEY, JSON.stringify(sidebarState));
-  } catch {
-    // Sidebar controls still work when storage is unavailable.
-  }
+}
+
+function resetSidebarLayout() {
+  sidebarState = { left: false, right: false };
+  applySidebarState(sidebarState);
 }
 
 function formatChips(value) {
@@ -485,6 +475,7 @@ elements.leftPanelToggle.addEventListener("click", () => toggleSidebar("left"));
 elements.rightPanelToggle.addEventListener("click", () => toggleSidebar("right"));
 elements.topLeftPanelToggle.addEventListener("click", () => toggleSidebar("left"));
 elements.topRightPanelToggle.addEventListener("click", () => toggleSidebar("right"));
+elements.layoutResetButton.addEventListener("click", resetSidebarLayout);
 
 elements.createRoomForm.addEventListener("submit", async (event) => {
   event.preventDefault();
