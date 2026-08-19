@@ -272,8 +272,8 @@ function handInsightFor(state) {
   };
 }
 
-function cardHtml(card, hidden = false, highlighted = false) {
-  if (hidden) return '<span class="card card-back" aria-label="暗牌"></span>';
+function cardHtml(card, hidden = false, highlighted = false, backTier = "stone") {
+  if (hidden) return `<span class="card card-back tier-${backTier}" aria-label="暗牌"></span>`;
   if (!card) return "";
   const red = card.suit === "H" || card.suit === "D";
   const suit = suitGlyphs[card.suit];
@@ -371,7 +371,7 @@ function renderSeats(state) {
     const handKeys = isMe ? handInsightFor(state).keys : new Set();
     const cards = player.cards?.length
       ? player.cards.map((card) => cardHtml(card, false, handKeys.has(cardKey(card)))).join("")
-      : (player.inHand ? `${cardHtml(null, true)}${cardHtml(null, true)}` : "");
+      : (player.inHand ? `${cardHtml(null, true, false, tier.id)}${cardHtml(null, true, false, tier.id)}` : "");
     const actionBet = player.bet > 0 ? `<span class="action-bet">${formatChips(player.bet)}</span>` : "";
     const dealer = player.seat === state.dealerIndex ? '<span class="dealer-chip">D</span>' : "";
     const status = player.folded ? "已弃牌" : player.allIn ? "全下" : isCurrent ? "思考中" : player.connected ? "" : "离线";

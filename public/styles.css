@@ -523,22 +523,32 @@ button {
 }
 
 .card.card-back {
+  --card-back-base: #8d363e;
+  --card-back-line: rgba(255, 255, 255, 0.24);
+  --card-back-edge: #e9e1cd;
   padding: 3px;
-  background: #e9e1cd;
+  border-color: var(--card-back-edge);
+  background: var(--card-back-edge);
 }
 
 .card.card-back::after {
   display: block;
   width: 100%;
   height: 100%;
-  border: 2px solid #e9e1cd;
+  border: 2px solid var(--card-back-edge);
   border-radius: 2px;
   background:
-    linear-gradient(45deg, transparent 45%, rgba(255,255,255,0.28) 46% 54%, transparent 55%),
-    linear-gradient(-45deg, transparent 45%, rgba(255,255,255,0.2) 46% 54%, transparent 55%),
-    #8d363e;
+    linear-gradient(45deg, transparent 45%, var(--card-back-line) 46% 54%, transparent 55%),
+    linear-gradient(-45deg, transparent 45%, var(--card-back-line) 46% 54%, transparent 55%),
+    var(--card-back-base);
   content: "";
 }
+
+.card.card-back.tier-stone { --card-back-base: #59656c; --card-back-line: rgba(224, 235, 232, 0.28); --card-back-edge: #d7e0db; }
+.card.card-back.tier-green { --card-back-base: #1e7b58; --card-back-line: rgba(220, 255, 234, 0.3); --card-back-edge: #c3f0d3; }
+.card.card-back.tier-blue { --card-back-base: #275f94; --card-back-line: rgba(218, 241, 255, 0.32); --card-back-edge: #c2e2fb; }
+.card.card-back.tier-gold { --card-back-base: #a06b19; --card-back-line: rgba(255, 246, 202, 0.34); --card-back-edge: #f7df9a; }
+.card.card-back.tier-crimson { --card-back-base: #a6304b; --card-back-line: rgba(255, 225, 232, 0.34); --card-back-edge: #ffc0cf; }
 
 .seat-ring {
   position: absolute;
