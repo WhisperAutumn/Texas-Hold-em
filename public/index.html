@@ -109,6 +109,30 @@
           </div>
         </div>
       </section>
+
+      <div class="settlement-overlay" id="settlement-overlay" hidden>
+        <section class="settlement-panel" role="dialog" aria-labelledby="settlement-title">
+          <header class="settlement-header">
+            <div>
+              <p class="eyebrow">HAND SETTLEMENT</p>
+              <h2 id="settlement-title">本手结算</h2>
+            </div>
+            <span class="settlement-pot" id="settlement-pot"></span>
+          </header>
+          <div class="settlement-board-row">
+            <span class="settlement-label">公共牌</span>
+            <div class="settlement-board" id="settlement-board"></div>
+          </div>
+          <div class="settlement-players" id="settlement-players"></div>
+          <footer class="settlement-footer">
+            <div>
+              <strong id="settlement-ready-count">0 / 0 人已准备</strong>
+              <span id="settlement-ready-copy">所有玩家准备后开始下一局。</span>
+            </div>
+            <button class="action-button primary" id="ready-next-hand-button" type="button">准备下一局</button>
+          </footer>
+        </section>
+      </div>
     </main>
 
     <section class="lobby-screen" id="lobby-screen" hidden>

@@ -697,6 +697,207 @@ button {
   backdrop-filter: blur(16px);
 }
 
+.settlement-overlay {
+  position: fixed;
+  inset: 66px 0 0;
+  z-index: 15;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(4, 17, 18, 0.78);
+  backdrop-filter: blur(7px);
+}
+
+.settlement-panel {
+  display: grid;
+  gap: 17px;
+  width: min(980px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid rgba(229, 183, 94, 0.46);
+  border-radius: 6px;
+  background: #0d2928;
+  box-shadow: 0 26px 90px rgba(0, 0, 0, 0.48);
+}
+
+.settlement-header,
+.settlement-footer,
+.settlement-board-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settlement-header h2 {
+  margin: 4px 0 0;
+  color: #f3edda;
+  font-family: Georgia, "Microsoft YaHei", serif;
+  font-size: 25px;
+  font-weight: 400;
+}
+
+.settlement-pot {
+  color: #f4c871;
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 11px;
+}
+
+.settlement-label,
+.settlement-board-row {
+  color: #91aa9e;
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 10px;
+}
+
+.settlement-board-row {
+  justify-content: flex-start;
+  padding-bottom: 2px;
+  border-bottom: 1px solid rgba(205, 226, 212, 0.13);
+}
+
+.settlement-board {
+  display: flex;
+  gap: 5px;
+  min-height: 43px;
+}
+
+.settlement-empty {
+  color: #718f83;
+  line-height: 32px;
+}
+
+.settlement-card {
+  width: 32px;
+  padding: 3px;
+  font-size: 11px;
+}
+
+.settlement-players {
+  display: grid;
+  gap: 8px;
+}
+
+.settlement-player {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.1fr) minmax(190px, 1.4fr) minmax(90px, 0.55fr);
+  align-items: center;
+  gap: 14px;
+  min-height: 76px;
+  padding: 9px 11px;
+  border: 1px solid rgba(205, 226, 212, 0.14);
+  border-radius: 4px;
+  background: rgba(5, 24, 23, 0.58);
+}
+
+.settlement-player.winner {
+  border-color: rgba(243, 198, 111, 0.62);
+  background: rgba(91, 67, 24, 0.22);
+}
+
+.settlement-player-main,
+.settlement-best-hand,
+.settlement-result {
+  min-width: 0;
+}
+
+.settlement-player-name,
+.settlement-best-hand,
+.settlement-result {
+  display: grid;
+  gap: 5px;
+}
+
+.settlement-player-name {
+  grid-template-columns: auto auto auto;
+  justify-content: start;
+  align-items: center;
+  gap: 6px;
+}
+
+.settlement-player-name strong {
+  overflow: hidden;
+  color: #eaf1e8;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settlement-player-name span {
+  padding: 2px 4px;
+  border: 1px solid rgba(205, 226, 212, 0.2);
+  border-radius: 2px;
+  color: #91aa9e;
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 8px;
+}
+
+.settlement-hole-cards,
+.settlement-best-hand > div {
+  display: flex;
+  gap: 4px;
+  min-height: 28px;
+}
+
+.settlement-hole-cards .settlement-card {
+  width: 22px;
+  font-size: 8px;
+}
+
+.settlement-best-hand > span {
+  color: #f4c871;
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 10px;
+}
+
+.settlement-best-hand .settlement-card {
+  width: 25px;
+  font-size: 9px;
+}
+
+.settlement-result {
+  justify-items: end;
+  text-align: right;
+}
+
+.settlement-result strong {
+  color: #f4c871;
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 13px;
+}
+
+.settlement-result span,
+.settlement-result small {
+  color: #91aa9e;
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 9px;
+}
+
+.settlement-result small {
+  color: #6f8f82;
+}
+
+.settlement-footer {
+  padding-top: 4px;
+  border-top: 1px solid rgba(205, 226, 212, 0.13);
+}
+
+.settlement-footer > div {
+  display: grid;
+  gap: 4px;
+}
+
+.settlement-footer strong {
+  color: #eaf1e8;
+  font-size: 12px;
+}
+
+.settlement-footer span {
+  color: #819b8f;
+  font-size: 10px;
+}
+
 .action-context {
   display: grid;
   justify-content: start;
@@ -956,6 +1157,14 @@ button {
   .raise-control {
     grid-column: 1 / -1;
   }
+
+  .settlement-overlay {
+    padding: 14px;
+  }
+
+  .settlement-panel {
+    padding: 18px;
+  }
 }
 
 @media (max-width: 610px) {
@@ -990,6 +1199,52 @@ button {
     min-height: 430px;
     overflow: visible;
     padding: 20px 0 48px;
+  }
+
+  .settlement-overlay {
+    inset: 58px 0 0;
+    align-items: start;
+    padding: 10px;
+  }
+
+  .settlement-panel {
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .settlement-header h2 {
+    font-size: 21px;
+  }
+
+  .settlement-pot {
+    font-size: 9px;
+  }
+
+  .settlement-player {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 9px;
+  }
+
+  .settlement-result {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    text-align: left;
+  }
+
+  .settlement-result small {
+    margin-left: auto;
+  }
+
+  .settlement-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settlement-footer .action-button {
+    width: 100%;
   }
 
   .table-rail {

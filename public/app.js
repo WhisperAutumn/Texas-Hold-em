@@ -65,6 +65,13 @@ const elements = {
   raiseButton: document.querySelector("#raise-button"),
   raiseSlider: document.querySelector("#raise-slider"),
   raiseOutput: document.querySelector("#raise-output"),
+  settlementOverlay: document.querySelector("#settlement-overlay"),
+  settlementPot: document.querySelector("#settlement-pot"),
+  settlementBoard: document.querySelector("#settlement-board"),
+  settlementPlayers: document.querySelector("#settlement-players"),
+  settlementReadyCount: document.querySelector("#settlement-ready-count"),
+  settlementReadyCopy: document.querySelector("#settlement-ready-copy"),
+  readyNextHandButton: document.querySelector("#ready-next-hand-button"),
   toast: document.querySelector("#toast"),
   soundButton: document.querySelector("#sound-button")
 };
@@ -75,6 +82,7 @@ let soundOn = false;
 let toastTimer = null;
 let requestInFlight = false;
 let actionInFlight = false;
+let readyInFlight = false;
 let lastTurnPlayerId = null;
 let authMode = "login";
 let pendingRoomId = null;
@@ -190,6 +198,17 @@ function localizeHistoryEntry(entry) {
 }
 
 const handTypeNames = ["高牌", "一对", "两对", "三条", "顺子", "同花", "葫芦", "四条", "同花顺"];
+const handTypeLabels = {
+  "High card": "高牌",
+  "One pair": "一对",
+  "Two pair": "两对",
+  "Three of a kind": "三条",
+  Straight: "顺子",
+  Flush: "同花",
+  "Full house": "葫芦",
+  "Four of a kind": "四条",
+  "Straight flush": "同花顺"
+};
 const suitNames = { S: "♠", H: "♥", D: "♦", C: "♣" };
 const rankNames = { T: "10", J: "J", Q: "Q", K: "K", A: "A" };
 
@@ -421,10 +440,66 @@ function renderControls(state) {
     elements.callCopy.textContent = current.isBot ? "电脑正在随机决策" : "等待操作";
     elements.statusCopy.textContent = myPlayer?.folded ? "你本手已弃牌，下一局很快开始。" : "正在观看牌桌行动。";
   } else {
-    elements.turnCopy.textContent = state.phase === "Showdown" ? "本手结束" : state.phase;
-    elements.callCopy.textContent = state.phase === "Showdown" ? "即将开始下一手" : "-";
-    elements.statusCopy.textContent = state.phase === "Showdown" ? "亮牌并结算底池。" : "牌桌正在准备。";
+    elements.turnCopy.textContent = state.phase === "Settlement" ? "本手结束" : state.phase;
+    elements.callCopy.textContent = state.phase === "Settlement" ? "等待全员准备" : "-";
+    elements.statusCopy.textContent = state.phase === "Settlement" ? "请查看本手结算并准备下一局。" : "牌桌正在准备。";
   }
+}
+
+function settlementCardHtml(card, selected = false) {
+  if (!card) return "";
+  return cardHtml(card, false, selected).replace('class="card ', 'class="card settlement-card ');
+}
+
+function renderSettlement(state) {
+  const settlement = state.settlement;
+  elements.settlementOverlay.hidden = !settlement;
+  if (!settlement) return;
+
+  const readiness = state.readiness || { readyCount: 0, total: 0, meReady: false, canReady: false };
+  elements.settlementPot.textContent = `本手底池 ${formatChips(settlement.pot)} Token`;
+  elements.settlementBoard.innerHTML = settlement.board.length
+    ? settlement.board.map((card) => settlementCardHtml(card)).join("")
+    : '<span class="settlement-empty">公共牌未发出</span>';
+  elements.settlementPlayers.innerHTML = settlement.players.map((player) => {
+    const winner = settlement.winnerIds.includes(player.id);
+    const currentPlayer = state.players.find((candidate) => candidate.id === player.id);
+    const selectedKeys = new Set(player.bestCards.map(cardKey));
+    const bestCards = player.bestCards.length
+      ? player.bestCards.map((card) => settlementCardHtml(card, true)).join("")
+      : [...player.cards, ...settlement.board].map((card) => settlementCardHtml(card, selectedKeys.has(cardKey(card)))).join("");
+    const handLabel = player.handType ? handTypeLabels[player.handType] || player.handType : "公共牌未发完";
+    const readyLabel = player.isBot
+      ? "AI 已准备"
+      : !currentPlayer
+        ? "已离开"
+        : currentPlayer.readyForNextHand
+          ? "已准备"
+          : "等待准备";
+    return `
+      <article class="settlement-player ${winner ? "winner" : ""}">
+        <div class="settlement-player-main">
+          <div class="settlement-player-name"><strong>${escapeHtml(player.name)}</strong>${player.isBot ? "<span>AI</span>" : ""}${player.folded ? "<span>已弃牌</span>" : ""}</div>
+          <div class="settlement-hole-cards">${player.cards.map((card) => settlementCardHtml(card)).join("")}</div>
+        </div>
+        <div class="settlement-best-hand">
+          <span>${escapeHtml(handLabel)}</span>
+          <div>${bestCards}</div>
+        </div>
+        <div class="settlement-result">
+          <strong>${winner ? `+${formatChips(player.payout)}` : "-"}</strong>
+          <span>${formatChips(player.stack)} Token</span>
+          <small>${readyLabel}</small>
+        </div>
+      </article>
+    `;
+  }).join("");
+  elements.settlementReadyCount.textContent = `${readiness.readyCount} / ${readiness.total} 人已准备`;
+  elements.settlementReadyCopy.textContent = readiness.meReady
+    ? "你已准备，正在等待其他玩家。"
+    : "所有在线玩家准备后开始下一局。";
+  elements.readyNextHandButton.disabled = readyInFlight || !readiness.canReady || readiness.meReady;
+  elements.readyNextHandButton.textContent = readiness.meReady ? "已准备" : readyInFlight ? "提交中" : "准备下一局";
 }
 
 function renderLobby(state) {
@@ -489,6 +564,7 @@ function renderTable(state) {
   elements.rulesMinRaise.textContent = formatChips(state.minimumRaise);
   renderSeats(state);
   renderControls(state);
+  renderSettlement(state);
 
   if (me && previousTurn !== me.id && state.currentPlayerId === me.id) playTurnTone();
 }
@@ -580,6 +656,22 @@ async function logout() {
     showToast("已退出登录。");
   } catch (error) {
     showToast(error.message);
+  }
+}
+
+async function readyNextHand() {
+  if (readyInFlight || !latestState?.readiness?.canReady) return;
+  readyInFlight = true;
+  renderSettlement(latestState);
+  try {
+    const payload = await api("/api/rooms/ready", { method: "POST", body: "{}" });
+    renderState(payload.state);
+  } catch (error) {
+    if (error.cause) renderState(error.cause);
+    showToast(error.message);
+  } finally {
+    readyInFlight = false;
+    if (latestState) renderSettlement(latestState);
   }
 }
 
@@ -712,6 +804,7 @@ elements.raiseButton.addEventListener("click", () => {
 elements.raiseSlider.addEventListener("input", () => {
   elements.raiseOutput.value = formatChips(elements.raiseSlider.value);
 });
+elements.readyNextHandButton.addEventListener("click", readyNextHand);
 elements.soundButton.addEventListener("click", () => {
   soundOn = !soundOn;
   elements.soundButton.textContent = soundOn ? "♫" : "♪";

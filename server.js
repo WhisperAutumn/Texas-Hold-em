@@ -113,6 +113,8 @@ function createGame(experimentalDeal = false) {
     log: ["Room created. Waiting for players."],
     nextHandTimer: null,
     turnTimer: null,
+    settlement: null,
+    nextHandReady: new Set(),
     version: 0,
     botTarget: 0,
     experimentalDeal
@@ -271,21 +273,27 @@ function evaluateFive(cards) {
   return [0, ...values];
 }
 
-function bestScore(cards) {
-  let best = [-1];
+function bestHand(cards) {
+  if (cards.length < 5) return { score: null, cards: [] };
+  let best = null;
   for (let a = 0; a < cards.length - 4; a += 1) {
     for (let b = a + 1; b < cards.length - 3; b += 1) {
       for (let c = b + 1; c < cards.length - 2; c += 1) {
         for (let d = c + 1; d < cards.length - 1; d += 1) {
           for (let e = d + 1; e < cards.length; e += 1) {
-            const score = evaluateFive([cards[a], cards[b], cards[c], cards[d], cards[e]]);
-            if (compareScores(score, best) > 0) best = score;
+            const selected = [cards[a], cards[b], cards[c], cards[d], cards[e]];
+            const score = evaluateFive(selected);
+            if (!best || compareScores(score, best.score) > 0) best = { score, cards: selected };
           }
         }
       }
     }
   }
   return best;
+}
+
+function bestScore(cards) {
+  return bestHand(cards).score || [-1];
 }
 
 function scoreName(score) {
@@ -300,6 +308,65 @@ function scoreName(score) {
     "Four of a kind",
     "Straight flush"
   ][score[0]];
+}
+
+function copyCards(cards) {
+  return cards.map((card) => ({ ...card }));
+}
+
+function createSettlement(winnerIds, payouts) {
+  const participants = game.players.filter((player) => player.inHand || player.cards.length > 0);
+  return {
+    board: copyCards(game.board),
+    pot: game.pot,
+    winnerIds,
+    players: participants.map((player) => {
+      const hand = bestHand([...player.cards, ...game.board]);
+      return {
+        id: player.id,
+        name: player.name,
+        isBot: player.isBot,
+        folded: player.folded,
+        cards: copyCards(player.cards),
+        bestCards: copyCards(hand.cards),
+        handType: hand.score ? scoreName(hand.score) : null,
+        payout: payouts[player.id] || 0,
+        stack: player.stack
+      };
+    })
+  };
+}
+
+function readyCandidates() {
+  return game.players.filter((player) => !player.isBot && !player.leftRoom && player.connected);
+}
+
+function allReadyForNextHand() {
+  const candidates = readyCandidates();
+  return candidates.length > 0 && candidates.every((player) => player.readyForNextHand);
+}
+
+function finishHand(winnerIds, payouts) {
+  const settlement = createSettlement(winnerIds, payouts);
+  game.phase = "Settlement";
+  game.handActive = false;
+  game.currentIndex = -1;
+  game.pot = 0;
+  game.settlement = settlement;
+  game.nextHandReady = new Set();
+  game.players.forEach((player) => {
+    player.readyForNextHand = player.isBot;
+  });
+  syncAccountBalances();
+  emitStateVersion();
+}
+
+function maybeStartNextHand() {
+  if (game.handActive || game.phase !== "Settlement") return false;
+  const eligible = game.players.filter((player) => player.isBot || (!player.leftRoom && player.connected));
+  if (eligible.length < 2 || !allReadyForNextHand()) return false;
+  startHand();
+  return true;
 }
 
 function activePlayers() {
@@ -349,7 +416,8 @@ function ensureBotSeats() {
       cards: [],
       bet: 0,
       totalBet: 0,
-      actedAtBet: -1
+      actedAtBet: -1,
+      readyForNextHand: false
     });
   }
   normalizeSeats();
@@ -369,6 +437,7 @@ function publicPlayer(player, viewerId, now) {
     folded: player.folded,
     allIn: player.allIn,
     bet: player.bet,
+    readyForNextHand: Boolean(player.readyForNextHand),
     cards: showCards ? player.cards : []
   };
 }
@@ -377,6 +446,7 @@ function stateFor(viewerSid, room, account) {
   const now = Date.now();
   const current = game.players[game.currentIndex];
   const viewer = findPlayerBySid(viewerSid);
+  const ready = readyCandidates();
   const viewerId = viewer?.id;
   return {
     view: "table",
@@ -399,6 +469,13 @@ function stateFor(viewerSid, room, account) {
     dealerIndex: game.dealerIndex,
     currentPlayerId: current ? current.id : null,
     players: game.players.map((player) => publicPlayer(player, viewerId, now)),
+    settlement: game.settlement,
+    readiness: {
+      canReady: Boolean(viewer && !game.handActive && game.phase === "Settlement" && !viewer.isBot && !viewer.leftRoom && viewer.connected),
+      meReady: Boolean(viewer?.readyForNextHand),
+      readyCount: ready.filter((player) => player.readyForNextHand).length,
+      total: ready.length
+    },
     log: game.log,
     me: viewer ? publicPlayer(viewer, viewerId, now) : null,
     controls: {
@@ -451,15 +528,10 @@ function clearTimers() {
 function awardUncontested() {
   const winner = activePlayers()[0];
   if (!winner) return;
-  winner.stack += game.pot;
-  game.phase = "Showdown";
-  game.handActive = false;
-  game.currentIndex = -1;
-  addLog(`${winner.name} wins ${game.pot} without a showdown.`);
-  game.pot = 0;
-  syncAccountBalances();
-  emitStateVersion();
-  scheduleNextHand();
+  const payout = game.pot;
+  winner.stack += payout;
+  addLog(`${winner.name} wins ${payout} without a showdown.`);
+  finishHand([winner.id], { [winner.id]: payout });
 }
 
 function showdown() {
@@ -473,14 +545,12 @@ function showdown() {
     entry.player.stack += share + (remainder > 0 ? 1 : 0);
     remainder = Math.max(0, remainder - 1);
   });
-  game.phase = "Showdown";
-  game.handActive = false;
-  game.currentIndex = -1;
   addLog(`${winners.map((entry) => entry.player.name).join(" & ")} win ${game.pot} with ${scoreName(best.score)}.`);
-  game.pot = 0;
-  syncAccountBalances();
-  emitStateVersion();
-  scheduleNextHand();
+  const payouts = Object.fromEntries(winners.map((entry, index) => [
+    entry.player.id,
+    share + (index < game.pot - share * winners.length ? 1 : 0)
+  ]));
+  finishHand(winners.map((entry) => entry.player.id), payouts);
 }
 
 function advanceStreet() {
@@ -621,8 +691,11 @@ function advanceTurn() {
 }
 
 function startHand() {
+  if (game.phase === "Settlement" && !allReadyForNextHand()) return false;
   clearTimers();
   game.rules = rulesForRoom(game.experimentalDeal);
+  game.settlement = null;
+  game.nextHandReady = new Set();
   game.players = game.players.filter((player) => player.isBot || (player.connected && !player.leftRoom));
   game.players.forEach((player) => {
     player.inHand = false;
@@ -632,6 +705,7 @@ function startHand() {
     player.bet = 0;
     player.totalBet = 0;
     player.actedAtBet = -1;
+    player.readyForNextHand = false;
   });
   ensureBotSeats();
 
@@ -701,17 +775,7 @@ function startHand() {
   } else {
     announceTurn();
   }
-}
-
-function scheduleNextHand() {
-  clearTimers();
-  const targetGame = game;
-  game.nextHandTimer = setTimeout(() => {
-    withGame(targetGame, () => {
-      game.nextHandTimer = null;
-      startHand();
-    });
-  }, 4200);
+  return true;
 }
 
 function maintenanceTick() {
@@ -740,6 +804,7 @@ function maintenanceTick() {
       changed = true;
       ensureBotSeats();
     }
+    if (game.phase === "Settlement") maybeStartNextHand();
   }
 
   if (changed) emitStateVersion();
@@ -1012,8 +1077,10 @@ function createOrUpdateAccountPlayer(room, req, res, account) {
   setAuthCookie(res, account.id);
   addLog(`${player.name} joins the table.`);
   emitStateVersion();
-  if (!game.handActive) startHand();
-  else ensureBotSeats();
+    if (!game.handActive) {
+      if (game.phase === "Settlement") maybeStartNextHand();
+      else startHand();
+    } else ensureBotSeats();
   return player;
   });
 }
@@ -1111,11 +1178,36 @@ function handleAccountLogout(req, res) {
       membership.player.connected = false;
       membership.player.lastSeen = 0;
       membership.player.sid = "";
+      membership.player.readyForNextHand = false;
+      maybeStartNextHand();
       emitStateVersion();
     });
   }
   clearAuthCookies(res);
   json(res, 200, { ok: true });
+}
+
+function handleReadyNextHand(req, res) {
+  const account = requirePlayerAccount(req, res);
+  if (!account) return;
+  const membership = findMembershipByAccountId(account.id);
+  if (!membership) {
+    json(res, 409, { ok: false, error: "请先加入房间。" });
+    return;
+  }
+  const { room, player } = membership;
+  withGame(room.game, () => {
+    touchPlayer(player);
+    if (game.handActive || game.phase !== "Settlement") {
+      json(res, 409, { ok: false, error: "当前没有等待准备的结算牌局。", state: stateFor(player.sid, room, account) });
+      return;
+    }
+    player.readyForNextHand = true;
+    game.nextHandReady.add(player.id);
+    maybeStartNextHand();
+    emitStateVersion();
+    json(res, 200, { ok: true, state: stateFor(player.sid, room, account) });
+  });
 }
 
 function handleActionRequest(req, res, body) {
@@ -1244,6 +1336,7 @@ function handleLeaveRoom(req, res) {
       syncAccountBalances();
       game.players = game.players.filter((candidate) => candidate !== player);
       ensureBotSeats();
+      maybeStartNextHand();
     }
     const nextOwner = game.players.find((candidate) => !candidate.isBot && !candidate.leftRoom);
     if (room.ownerAccountId === account.id && nextOwner) room.ownerAccountId = nextOwner.accountId;
@@ -1276,7 +1369,8 @@ function handleRoomBots(req, res, body) {
     game.botTarget = Math.max(0, Math.min(MAX_SEATS - humanCount, game.botTarget + delta));
     if (!game.handActive) {
       ensureBotSeats();
-      if (game.players.length >= 2) startHand();
+      if (game.phase === "Settlement") maybeStartNextHand();
+      else if (game.players.length >= 2) startHand();
     }
     emitStateVersion();
     json(res, 200, { ok: true, state: stateFor(player.sid, room, account) });
@@ -1586,6 +1680,11 @@ function routeRequest(req, res) {
 
   if (req.method === "POST" && pathname === "/api/action") {
     handleJsonRoute(req, res, (body) => handleActionRequest(req, res, body));
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/rooms/ready") {
+    handleReadyNextHand(req, res);
     return;
   }
 
