@@ -583,6 +583,18 @@ button {
 .seat-ring[data-opponents="3"] .seat.opponent-1 { left: 83%; top: 45%; }
 .seat-ring[data-opponents="3"] .seat.opponent-2 { left: 17%; top: 45%; }
 
+/* Keep upper-seat hole cards outside the table rail instead of over the felt. */
+.seat-ring[data-opponents="1"] .seat.opponent-0 .hole-cards,
+.seat-ring[data-opponents="2"] .seat.opponent-0 .hole-cards,
+.seat-ring[data-opponents="4"] .seat.opponent-0 .hole-cards {
+  transform: translate(-44px, -56px);
+}
+
+.seat-ring[data-opponents="2"] .seat.opponent-1 .hole-cards,
+.seat-ring[data-opponents="4"] .seat.opponent-1 .hole-cards {
+  transform: translate(44px, -56px);
+}
+
 .seat-player {
   position: relative;
   z-index: 2;
